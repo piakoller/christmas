@@ -228,7 +228,20 @@ def _get_supabase_client() -> Optional[Any]:
         return None
     if not cfg or not cfg.get("url") or not cfg.get("key"):
         return None
-    return create_client(cfg["url"], cfg["key"])
+    return create_client(normalize_supabase_url(cfg["url"]), str(cfg["key"]).strip())
+
+
+def normalize_supabase_url(url: str) -> str:
+    """Reduce the configured URL to the project address (https://xyz.supabase.co).
+    The client appends /rest/v1 itself; a copied API URL with /rest/v1 or a trailing
+    slash would otherwise lead to 'Invalid path specified in request URL' (PGRST125).
+    """
+    from urllib.parse import urlsplit
+    url = str(url).strip()
+    if "://" not in url:
+        url = "https://" + url
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}"
 
 
 def _supabase_load(key: str) -> Any:
