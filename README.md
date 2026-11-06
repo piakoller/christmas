@@ -3,7 +3,7 @@
 Wunschliste, geheime Geschenkvorschläge, Essensplanung und „Wer kommt wann?“ für die Familie.
 Eine installierbare Web-App (PWA) mit Push-Nachrichten, gehostet auf **GitHub Pages**, Daten in **Supabase**.
 
-**Adresse:** https://piakoller.github.io/christmas25/
+**Adresse:** https://piakoller.github.io/christmas/
 
 ## Für die Familie: App aufs Handy holen
 
