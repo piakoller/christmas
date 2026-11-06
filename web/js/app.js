@@ -38,9 +38,6 @@ function useHashRoute() {
   return loc;
 }
 
-// Kurze Namen für die untere Leiste auf dem Handy
-const SHORT_LABELS = { "": "Start", wunschliste: "Wünsche", essen: "Essen", anwesenheit: "Wer kommt", advent: "Advent", einstellungen: "Mehr" };
-
 function Toast({ text }) {
   return text ? html`<div class="toast" role="status">${text}</div>` : null;
 }
@@ -66,9 +63,10 @@ function Layout({ route, children }) {
       <main class="main">${children}</main>
       <nav class="tabbar" aria-label="Hauptmenü">
         ${mobile.map((p) => html`
-          <a class=${route === p.key ? "active" : ""} href=${`#/${p.key}`}>
+          <a class=${route === p.key ? "active" : ""} href=${`#/${p.key}`} title=${p.label}
+             aria-current=${route === p.key ? "page" : undefined}>
             <span class="ico" aria-hidden="true">${p.icon}</span>
-            <span class="lbl">${SHORT_LABELS[p.key] || p.label}</span>
+            <span class="visually-hidden">${p.label}</span>
           </a>`)}
       </nav>
     </div>`;
