@@ -1,7 +1,7 @@
 // Service Worker: macht die App installierbar, lädt die App-Hülle auch bei schlechtem
 // Netz und empfängt Push-Nachrichten.
 // Bei jeder Änderung an App-Dateien die Version erhöhen, damit alle die neue Version bekommen.
-const VERSION = "v1";
+const VERSION = "v2";
 const CACHE = `weihnachten-${VERSION}`;
 const SHELL = [
   "./",
