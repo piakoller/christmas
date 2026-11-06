@@ -7,11 +7,12 @@ export function currentSeasonYear(today = new Date()) {
 export const WEEKDAYS = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
 
 const DAY_LABELS = {
-  23: ["23. Dezember", "🎄"],
-  24: ["Heiligabend (24.12.)", "🎄"],
-  25: ["1. Weihnachtstag (25.12.)", "🎅"],
-  26: ["2. Weihnachtstag (26.12.)", "🎁"],
+  23: ["23. Dezember", "🎄", "Vorabend"],
+  24: ["Heiligabend (24.12.)", "🎄", "Heiligabend"],
+  25: ["1. Weihnachtstag (25.12.)", "🎅", "1. Weihnachtstag"],
+  26: ["2. Weihnachtstag (26.12.)", "🎁", "2. Weihnachtstag"],
 };
+const WEEKDAYS_SHORT = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
 
 function isoDate(year, month, day) {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -19,9 +20,15 @@ function isoDate(year, month, day) {
 
 // Geplante Tage (Essen, Anwesenheit) mit Wochentag
 export function christmasDays(season) {
-  return Object.entries(DAY_LABELS).map(([day, [label, emoji]]) => {
+  return Object.entries(DAY_LABELS).map(([day, [label, emoji, title]]) => {
     const date = new Date(season, 11, Number(day));
-    return { date: isoDate(season, 12, Number(day)), name: `${label}, ${WEEKDAYS[date.getDay()]}`, emoji };
+    return {
+      date: isoDate(season, 12, Number(day)),
+      name: `${label}, ${WEEKDAYS[date.getDay()]}`,
+      emoji,
+      title,                                              // z. B. "Heiligabend"
+      short: `${WEEKDAYS_SHORT[date.getDay()]} ${day}.12.`, // z. B. "Do 24.12."
+    };
   });
 }
 

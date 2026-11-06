@@ -2,10 +2,11 @@ import { html, useState, useApp, useLoader, useAction, Alert, BackLink, Loading,
 import { supabase, check } from "../supabase.js";
 import { christmasDays } from "../lib/season.js";
 
+// Mögliche Antworten pro Tag (Reihenfolge = Anzeige im Umschalter)
 const STATUS = [
-  { key: "absent", label: "Nicht dabei" },
-  { key: "present", label: "Dabei" },
-  { key: "unsure", label: "Noch unsicher" },
+  { key: "present", label: "✓ Dabei" },
+  { key: "unsure", label: "? Unsicher" },
+  { key: "absent", label: "✕ Nein" },
 ];
 
 async function loadAttendance(season) {
@@ -20,7 +21,6 @@ export function AttendancePage() {
   return html`
     <${BackLink} />
     <h1>📅 Wer kommt wann?</h1>
-    <p class="muted">Hier tragt ihr ein, wer an welchen Tagen dabei ist.</p>
     ${error && html`<${Alert} kind="error">${error.message}<//>`}
     ${loading && !data && html`<${Loading} />`}
     ${data && (me.is_family_account
@@ -29,11 +29,17 @@ export function AttendancePage() {
     ${data && html`<${Overview} rows=${data} />`}`;
 }
 
+function DayTitle({ day }) {
+  return html`<div class="day-title">
+    <span aria-hidden="true">${day.emoji}</span> <strong>${day.title}</strong> <span class="muted">· ${day.short}</span>
+  </div>`;
+}
+
 function MyAttendance({ entry, onSaved }) {
   const { me, season } = useApp();
   const days = christmasDays(season);
   const [state, setState] = useState(() => Object.fromEntries(days.map((d) => [d.date, {
-    status: "absent", with_partner: false, overnight: false, ...(entry?.days?.[d.date] || {}),
+    status: null, with_partner: false, overnight: false, ...(entry?.days?.[d.date] || {}),
   }])));
   const [notes, setNotes] = useState(entry?.notes || "");
   const { busy, error, run } = useAction();
@@ -50,33 +56,34 @@ function MyAttendance({ entry, onSaved }) {
       check(await supabase.from("attendance").upsert({
         season, person: me.name, days: state, notes: notes.trim(), updated_at: new Date().toISOString(),
       }), "Anwesenheit konnte nicht gespeichert werden");
-    }, "Anwesenheit gespeichert").then((ok) => ok && onSaved());
+    }, "Gespeichert").then((ok) => ok && onSaved());
   };
 
   return html`
     <form class="card form" novalidate onSubmit=${save}>
-      <h3>📝 Deine Anwesenheit, ${me.name}</h3>
+      <h3>Bist du dabei, ${me.name}?</h3>
       ${days.map((d) => {
         const s = state[d.date];
-        return html`<div key=${d.date} style="border-top:1px solid var(--border);padding-top:.6rem">
-          <div style="font-weight:700">${d.emoji} ${d.name}</div>
-          <div class="row" role="radiogroup" aria-label=${d.name} style="margin:.35rem 0">
-            ${STATUS.map((st) => html`<label class="check">
-              <input type="radio" name=${`status-${d.date}`} checked=${s.status === st.key} onChange=${() => update(d.date, { status: st.key })} />
-              ${st.label}</label>`)}
+        const coming = s.status === "present" || s.status === "unsure";
+        return html`<div class="day-row" key=${d.date}>
+          <${DayTitle} day=${d} />
+          <div class="segmented" role="radiogroup" aria-label=${d.name}>
+            ${STATUS.map((st) => html`<button type="button" role="radio" aria-checked=${s.status === st.key}
+              class=${`seg-${st.key} ${s.status === st.key ? "on" : ""}`}
+              onClick=${() => update(d.date, { status: st.key })}>${st.label}</button>`)}
           </div>
-          <div class="row">
-            <label class="check"><input type="checkbox" checked=${s.with_partner} disabled=${s.status === "absent"}
-              onChange=${(e) => update(d.date, { with_partner: e.target.checked })} /> + Partner/in</label>
-            <label class="check"><input type="checkbox" checked=${s.overnight} disabled=${s.status === "absent"}
-              onChange=${(e) => update(d.date, { overnight: e.target.checked })} /> 🌙 Übernachtung</label>
-          </div>
+          ${coming && html`<div class="chips">
+            <button type="button" class=${`chip ${s.with_partner ? "on" : ""}`} aria-pressed=${s.with_partner}
+              onClick=${() => update(d.date, { with_partner: !s.with_partner })}>+ Partner/in</button>
+            <button type="button" class=${`chip ${s.overnight ? "on" : ""}`} aria-pressed=${s.overnight}
+              onClick=${() => update(d.date, { overnight: !s.overnight })}>🌙 Übernachtung</button>
+          </div>`}
         </div>`;
       })}
-      <label class="field"><span>Besondere Hinweise (Allergien, Diät-Wünsche, …)</span>
-        <textarea maxlength="1000" value=${notes} onInput=${(e) => setNotes(e.target.value)}></textarea>
+      <label class="field"><span>Hinweise (Allergien, Diät …)</span>
+        <textarea maxlength="1000" rows="2" style="min-height:0" value=${notes} onInput=${(e) => setNotes(e.target.value)}></textarea>
       </label>
-      <div><button class="btn primary" disabled=${busy}>💾 Speichern</button></div>
+      <button class="btn primary block" disabled=${busy}>💾 Speichern</button>
       <${Alert} kind="error">${error}<//>
     </form>`;
 }
@@ -91,17 +98,16 @@ function Overview({ rows }) {
     <div class="section">
       <h2>👥 Übersicht</h2>
       ${relevant.length === 0 && html`<${Empty}>Noch niemand hat sich eingetragen.<//>`}
-      ${relevant.length > 0 && html`<div class="grid">
+      ${relevant.length > 0 && html`<div class="card">
         ${christmasDays(season).map((d) => {
           const present = relevant.filter((r) => r.days?.[d.date]?.status === "present");
           const unsure = relevant.filter((r) => r.days?.[d.date]?.status === "unsure");
           const persons = present.length + present.filter((r) => r.days[d.date].with_partner).length;
-          const label = (r) => `${r.person}${r.days[d.date].with_partner ? " (+Partner/in)" : ""}${r.days[d.date].overnight ? " 🌙" : ""}`;
-          return html`<div class="card" key=${d.date}>
-            <h3>${d.emoji} ${d.name}</h3>
-            <div class="metric" style="border:0;padding:0;margin-bottom:.5rem"><span class="value">${persons}</span> <span class="label">Personen sicher dabei</span></div>
-            ${present.length > 0 && html`<div>✅ ${present.map(label).join(", ")}</div>`}
-            ${unsure.length > 0 && html`<div style="margin-top:.3rem">❓ ${unsure.map(label).join(", ")}</div>`}
+          const label = (r) => `${r.person}${r.days[d.date].with_partner ? " +1" : ""}${r.days[d.date].overnight ? " 🌙" : ""}`;
+          return html`<div class="day-row" key=${d.date}>
+            <div class="row between"><${DayTitle} day=${d} /><span class="badge green">${persons} 👤</span></div>
+            ${present.length > 0 && html`<div>✓ ${present.map(label).join(", ")}</div>`}
+            ${unsure.length > 0 && html`<div class="muted">? ${unsure.map(label).join(", ")}</div>`}
             ${present.length + unsure.length === 0 && html`<small class="muted">Noch niemand</small>`}
           </div>`;
         })}

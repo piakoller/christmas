@@ -39,6 +39,11 @@ body {
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation; /* kein Zoomen per Doppeltippen */
 }
+/* Fester Hintergrund hinter Uhrzeit/Dynamic Island, damit gescrollter Inhalt nicht durchscheint */
+body::before {
+  content: ""; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top);
+  background: var(--bg); z-index: 40; pointer-events: none;
+}
 /* Nichts darf breiter als der Bildschirm werden (Safari vergrößert sonst die ganze Seite) */
 img, video, canvas, input, select, textarea, button { max-width: 100%; }
 fieldset { min-width: 0; }
@@ -218,6 +223,29 @@ table.simple th { color: var(--muted); font-weight: 600; }
 details.box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .75rem 1rem; }
 details.box > summary { cursor: pointer; font-weight: 700; color: var(--green); }
 details.box[open] > summary { margin-bottom: .75rem; }
+
+/* Tage (Anwesenheit): Titel, Umschalter, kleine Schalter */
+.day-row { padding: .75rem 0; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: .5rem; }
+.card > .day-row:first-child, .card > h3 + .day-row { border-top: 0; padding-top: .25rem; }
+.day-title { font-size: 1rem; }
+.segmented {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px;
+  background: var(--surface-2); border-radius: 10px;
+}
+.segmented button {
+  font: inherit; font-size: .9rem; font-weight: 600; border: 0; background: transparent; color: var(--muted);
+  padding: .5rem .25rem; border-radius: 8px; cursor: pointer; white-space: nowrap;
+}
+.segmented button.on { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.segmented button.seg-present.on { color: var(--ok); }
+.segmented button.seg-unsure.on { color: var(--warn); }
+.segmented button.seg-absent.on { color: var(--danger); }
+.chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+.chip {
+  font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; padding: .3rem .75rem;
+  border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+}
+.chip.on { background: var(--ok-bg); border-color: #B8D9C2; color: var(--ok); }
 
 .empty { color: var(--muted); padding: 1rem; text-align: center; background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius); }
 .loading { color: var(--muted); padding: 2rem; text-align: center; }
