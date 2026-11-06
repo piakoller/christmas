@@ -170,3 +170,12 @@ cython_debug/
 !.streamlit/secrets.toml.example
 
 # End of https://www.toptal.com/developers/gitignore/api/python,streamlit
+
+# Push-Schlüssel (privater Teil gehört nur in die Supabase-Secrets)
+.vapid.json
+
+# Web-App: der Python-Eintrag "lib/" oben darf den App-Ordner nicht ausschließen
+!web/js/lib/
+
+# Supabase CLI (lokaler Zwischenspeicher)
+supabase/.temp/

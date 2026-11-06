@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Weihnachten</title>
+  <meta name="description" content="Wunschliste, Essensplanung und mehr für die Familie">
+  <meta name="theme-color" content="#1E3A2B">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Weihnachten">
+  <link rel="stylesheet" href="styles.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "preact": "https://esm.sh/preact@10.24.3",
+      "preact/hooks": "https://esm.sh/preact@10.24.3/hooks",
+      "htm/preact": "https://esm.sh/htm@3.1.1/preact?external=preact",
+      "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.4"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"><div class="loading">Lädt …</div></div>
+  <noscript>Bitte JavaScript aktivieren.</noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

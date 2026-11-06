@@ -1,0 +1,21 @@
+# Entwicklungsumgebung für die Weihnachts-App
+#   conda env create -f environment.yml
+#   conda activate weihnachten
+#
+# Python: lokaler Webserver (python -m http.server), Datenübernahme, VAPID-Schlüssel, Tests
+# Node.js: Supabase CLI über "npx supabase ..." (Migrationen, Edge Function, Secrets)
+#
+# Hinweis Windows on ARM (win-arm64): cryptography gibt es dort nur als conda-Paket
+# und nur für Python 3.14, deshalb kommt es aus conda-forge statt über pip.
+name: weihnachten
+channels:
+  - conda-forge
+dependencies:
+  - python=3.14
+  - pip
+  - nodejs>=22
+  - cryptography
+  - pillow
+  - pytest
+  - pip:
+      - supabase
