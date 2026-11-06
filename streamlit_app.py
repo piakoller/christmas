@@ -640,7 +640,7 @@ def _avatar_css(selected: Optional[str]) -> str:
         ring = "box-shadow: 0 0 0 3px #FFFBF5, 0 0 0 6px #1E3A2B;" if user == selected else ""
         rules.append(f"""
         .st-key-avatar_{user} button::before {{
-            content: "{user[:2].upper()}"; background: {bg}; color: {fg}; {ring}
+            content: "{user[0].upper()}"; background: {bg}; color: {fg}; {ring}
         }}""")
     return "<style>" + """
     .st-key-avatar_grid { justify-content: center; gap: .75rem 1rem; margin: .5rem 0 1rem 0; }
@@ -650,7 +650,7 @@ def _avatar_css(selected: Optional[str]) -> str:
     }
     .st-key-avatar_grid .stButton button::before {
         width: 3.6rem; height: 3.6rem; border-radius: 50%; display: flex; align-items: center;
-        justify-content: center; font-weight: 700; font-size: 1.05rem; letter-spacing: .03em;
+        justify-content: center; font-weight: 700; font-size: 1.5rem;
         transition: transform .15s ease;
     }
     .st-key-avatar_grid .stButton button:hover::before { transform: scale(1.06); }
