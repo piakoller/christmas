@@ -1,74 +1,72 @@
-# 🎄 Weihnachten – Familien-Planungsseite
+# 🎄 Weihnachten – die Familien-App
 
-Wunschliste, Essensplanung, Anwesenheit und Adventskalender für die Familie.
-Gebaut mit Streamlit, Daten in Supabase, gehostet auf Streamlit Community Cloud.
+Wunschliste, geheime Geschenkvorschläge, Essensplanung und „Wer kommt wann?“ für die Familie.
+Eine installierbare Web-App (PWA) mit Push-Nachrichten, gehostet auf **GitHub Pages**, Daten in **Supabase**.
 
-Jedes Jahr startet automatisch frisch (ab Februar gilt das neue Jahr); alte Jahre bleiben in Supabase erhalten.
+**Adresse:** https://piakoller.github.io/christmas25/
 
-## 1. Supabase einrichten (einmalig)
+## Für die Familie: App aufs Handy holen
 
-1. Auf [supabase.com](https://supabase.com) ein Projekt anlegen.
-2. Im Dashboard **SQL Editor** öffnen, den Inhalt von [`supabase/schema.sql`](supabase/schema.sql) einfügen und ausführen.
-3. Zugangsdaten notieren:
-   - **URL**: *Connect* oben im Projekt oder *Project Settings → Data API* (`https://xyz.supabase.co`)
-   - **Secret key**: *Project Settings → API Keys* (`sb_secret_…`, bzw. Legacy `service_role`).
-     Nicht den *publishable/anon* Key verwenden.
+1. Die Adresse oben im Handy-Browser öffnen.
+2. Installieren:
+   - **iPhone/iPad (Safari):** unten auf **Teilen** (□↑) → **„Zum Home-Bildschirm“** → Hinzufügen.
+     Danach die App **über das neue Symbol** öffnen (nur so funktionieren Benachrichtigungen).
+   - **Android (Chrome):** Menü ⋮ → **„App installieren“** bzw. „Zum Startbildschirm hinzufügen“.
+3. Auf den eigenen Namen tippen. Beim ersten Mal den **Familien-Code** eingeben und eine eigene PIN (4–8 Ziffern) wählen.
+4. Unter **Einstellungen → Benachrichtigungen** die Nachrichten auf diesem Gerät einschalten und wählen, wofür man benachrichtigt werden möchte.
 
-## 2. Secrets vorbereiten
+PIN vergessen? Dieter oder Gudrun setzen sie unter Einstellungen → Verwaltung zurück.
 
-[`.streamlit/secrets.toml.example`](.streamlit/secrets.toml.example) kopieren und ausfüllen
-(Supabase-URL, Secret key, Familien-Code und ein `cookie_secret` für „Angemeldet bleiben“).
-Eine zufällige Zeichenkette für `cookie_secret` erzeugt z. B.
-`python -c "import secrets; print(secrets.token_urlsafe(32))"`.
+## Aufbau
 
-### Login und PINs
+| Ordner | Inhalt |
+|---|---|
+| `web/` | Die App (HTML/CSS/JavaScript, kein Build-Schritt). Einstellungen in `web/config.js`. |
+| `supabase/migrations/` | Datenbank: Tabellen, Zugriffsregeln (RLS), Login-Trigger, Speicher |
+| `supabase/functions/notify/` | Edge Function, die die Push-Nachrichten verschickt |
+| `supabase/migrate_app_data.py` | Übernahme von Daten aus der alten Streamlit-App (Tabelle `app_data`) |
+| `tools/` | Lokaler Webserver, Icons und Push-Schlüssel erzeugen |
+| `tests/` | Tests (`pytest`) |
+| `images/` | Fotos für den Adventskalender (werden noch in den privaten Speicher verschoben) |
+| `.github/workflows/pages.yml` | Veröffentlicht `web/` bei jedem Push auf `main` |
 
-- Beim ersten Login tippt jede Person auf ihren Avatar und legt mit dem **Familien-Code** eine eigene PIN
-  (4–8 Ziffern) an. Gespeichert wird in Supabase nur ein Hash der PIN (Saison `0`, Key `pins`).
-- **PIN ändern:** in der Seitenleiste. Danach sind andere Geräte dieser Person abgemeldet.
-- **PIN vergessen:** Dieter oder Gudrun setzen sie in der Seitenleiste unter „PIN zurücksetzen“ zurück;
-  die Person legt dann mit dem Familien-Code eine neue an. Diese Datei enthält Geheimnisse und
-darf **nie** ins Git-Repository.
+Wer was sehen darf, regelt die Datenbank selbst: Käufe für dich und geheime Vorschläge für dich
+sind für dich unsichtbar, auch wenn man die App umgeht.
 
-## 3. Auf Streamlit Community Cloud
+## Entwicklung
 
-1. In [share.streamlit.io](https://share.streamlit.io) die App öffnen → **⋮ → Settings → Secrets**.
-2. Den ausgefüllten Inhalt aus Schritt 2 einfügen und speichern. Die App startet danach neu.
-
-Jeder Push auf den Branch `main` wird automatisch neu veröffentlicht.
-
-## Adventskalender ein-/ausschalten
-
-Der Adventskalender ist standardmäßig **ausgeschaltet** (Kachel, Menüpunkt und Link sind ausgeblendet).
-Zum Einschalten in den Secrets ergänzen bzw. ändern:
-
-```toml
-[features]
-advent_calendar = true
-```
-
-Dafür ist keine Code-Änderung nötig.
-
-## Daten aus Firebase übernehmen (optional)
-
-In der Firebase Console unter *Realtime Database → ⋮ → JSON exportieren* den Export herunterladen, dann:
+Alles Nötige steckt im Conda-Environment `weihnachten`:
 
 ```bash
-python supabase/migrate_firebase_export.py firebase-export.json
+conda env create -f environment.yml
 ```
-
-Daten, die direkt unter `wishes`/`planning` lagen, landen im Jahr 2025.
-
-## Lokal starten
-
 ```bash
-pip install -r requirements.txt
-streamlit run streamlit_app.py
+conda activate weihnachten
+```
+```bash
+python tools/serve.py
 ```
 
-Mit `.streamlit/secrets.toml` wird Supabase genutzt; ohne Supabase-Eintrag speichert die App in lokalen JSON-Dateien.
+Dann http://localhost:8520 öffnen. Tests: `python -m pytest tests`.
 
-## Fotos für den Adventskalender
+## Einrichtung (einmalig, schon erledigt)
 
-Fotos liegen in `images/` und heißen nach dem Jahr (z. B. `2025.jpg`, zweites Foto `2025-2.jpg`).
-Die Bildunterschriften stehen in `streamlit_app.py` im Dictionary `year_captions`.
+1. **Supabase**
+   - SQL Editor: `supabase/migrations/20261106000000_app.sql` ausführen (kann mehrfach laufen).
+   - Familien-Code setzen:
+     ```sql
+     insert into private.config (key, value) values ('family_code', 'EUER-CODE')
+     on conflict (key) do update set value = excluded.value;
+     ```
+   - Authentication → Email: **„Confirm email“ ausschalten**.
+2. **Push-Nachrichten**
+   - `python tools/make_vapid.py` erzeugt `.vapid.json` (nicht im Git!). Den öffentlichen Schlüssel in `web/config.js` eintragen.
+   - `npx supabase@2 login`, dann
+     `npx supabase@2 functions deploy notify --project-ref <REF> --use-api` und die Secrets
+     `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` mit `npx supabase@2 secrets set` setzen.
+3. **GitHub Pages:** Repository → Settings → Pages → Source: **GitHub Actions**.
+
+## Neues Jahr
+
+Nichts zu tun: Ab Februar plant die App automatisch das nächste Weihnachten (Spalte `season`);
+die Daten früherer Jahre bleiben erhalten.
