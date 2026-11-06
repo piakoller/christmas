@@ -9,10 +9,10 @@ import {
 } from "../lib/gifts.js";
 
 const TABS = [
-  { key: "meine", label: "🎁 Meine Wünsche" },
-  { key: "andere", label: "🎄 Wünsche der Anderen" },
-  { key: "vorschlaege", label: "💡 Geheime Vorschläge" },
-  { key: "besorgungen", label: "🛒 Besorgungen & Ausgaben" },
+  { key: "meine", label: "🎁 Meine" },
+  { key: "andere", label: "🎄 Andere" },
+  { key: "vorschlaege", label: "🤫 Ideen" },
+  { key: "besorgungen", label: "🛒 Einkäufe" },
 ];
 
 export function WishlistPage({ params }) {
@@ -38,81 +38,93 @@ export function WishlistPage({ params }) {
 // ---------------------------------------------------------------------------
 // Gemeinsame Bausteine
 // ---------------------------------------------------------------------------
-function GiftDetails({ item, images = true }) {
-  const link = safeUrl(item.link);
-  return html`
-    ${item.description && html`<p style="white-space:pre-line">${item.description}</p>`}
-    ${link && html`<p><a href=${link} target="_blank" rel="noopener noreferrer">🔗 Link öffnen</a></p>`}
-    ${images && item.image_paths?.length > 0 && html`<${StoredImages} bucket=${BUCKET} paths=${item.image_paths} />`}`;
-}
-
-function PriceTag({ value }) {
-  return Number(value) > 0 ? html`<span class="badge">${euro(value)}</span>` : null;
-}
-
-function PurchaseForm({ itemId, estimate, reload, onDone }) {
-  const [price, setPrice] = useState(estimate > 0 ? String(estimate) : "");
-  const { busy, error, setError, run } = useAction();
-  const submit = async (e) => {
-    e.preventDefault();
-    const value = parsePrice(price);
-    if (Number.isNaN(value)) return setError("Bitte gib einen gültigen Preis ein.");
-    if (await run(() => markPurchased(itemId, value), "Als gekauft markiert")) { onDone?.(); reload(); }
-  };
-  return html`
-    <form class="row" novalidate onSubmit=${submit} style="margin-top:.5rem">
-      <input type="number" step="0.01" min="0" inputmode="decimal" style="max-width:140px"
-             aria-label="Tatsächlicher Preis in Euro" placeholder="Preis in €" value=${price}
-             onInput=${(e) => setPrice(e.target.value)} />
-      <button class="btn green small" disabled=${busy}>✓ Als gekauft markieren</button>
-      <${Alert} kind="error">${error}<//>
-    </form>`;
-}
-
-// Besorgen / nicht mehr besorgen / gekauft – für Wünsche anderer und Vorschläge
-function ClaimControls({ item, kind, purchase, reload }) {
-  const { me } = useApp();
-  const action = useAction();
-  if (!purchase) {
-    return html`<div class="row" style="margin-top:.5rem">
-      <button class="btn primary small" disabled=${action.busy}
-        onClick=${() => action.run(() => claim(item.id, kind, me.name), "Super! Du besorgst das.").then((ok) => ok && reload())}>
-        🎁 Ich besorge das!
-      </button>
-      <${Alert} kind="error">${action.error}<//>
-    </div>`;
-  }
-  if (purchase.claimed_by !== me.name) {
-    return html`<p style="margin-top:.5rem"><span class="badge gold">Wird von ${purchase.claimed_by} besorgt</span></p>`;
-  }
-  return html`<div style="margin-top:.5rem">
-    ${purchase.purchased
-      ? html`<span class="badge green">✅ Von dir gekauft${purchase.actual_price != null ? ` (${euro(purchase.actual_price)})` : ""}</span>`
-      : html`<span class="badge gold">🛍️ Du besorgst das</span>
-             <${PurchaseForm} itemId=${item.id} estimate=${Number(item.price)} reload=${reload} />`}
-    ${!purchase.purchased && html`<div style="margin-top:.4rem">
-      <button class="btn ghost small" disabled=${action.busy}
-        onClick=${() => confirm("Wirklich nicht mehr besorgen? Dann können es andere übernehmen.")
-          && action.run(() => unclaim(item.id), "Freigegeben").then((ok) => ok && reload())}>
-        ↩︎ Nicht mehr besorgen
-      </button></div>`}
-    <${Alert} kind="error">${action.error}<//>
-  </div>`;
-}
-
 function groupBy(items, key) {
   const map = new Map();
   for (const item of items) {
-    const k = item[key];
-    if (!map.has(k)) map.set(k, []);
-    map.get(k).push(item);
+    if (!map.has(item[key])) map.set(item[key], []);
+    map.get(item[key]).push(item);
   }
   return map;
 }
 
 function PersonHeading({ name, children }) {
   const { profileByName } = useApp();
-  return html`<h2 class="row" style="margin-top:1.5rem"><${Avatar} profile=${profileByName[name]} size="small" />${children || name}</h2>`;
+  return html`<h3 class="row" style="gap:.5rem;margin:1.25rem 0 .5rem"><${Avatar} profile=${profileByName[name]} size="small" />${children || name}</h3>`;
+}
+
+// Ein Geschenk als Listeneintrag: Titel + Preis rechts, darunter Text, Link, Bilder, Extras
+function GiftItem({ item, extra, children }) {
+  const link = safeUrl(item.link);
+  return html`
+    <div class="list-item">
+      <div class="list-main">
+        <div class="list-title">${item.name}</div>
+        ${item.description && html`<div class="list-sub clamp">${item.description}</div>`}
+        ${(link || extra) && html`<div class="list-meta">
+          ${extra}
+          ${link && html`<a href=${link} target="_blank" rel="noopener noreferrer">🔗 Link</a>`}
+        </div>`}
+        ${item.image_paths?.length > 0 && html`<${StoredImages} bucket=${BUCKET} paths=${item.image_paths} small />`}
+        ${children}
+      </div>
+      ${Number(item.price) > 0 && html`<div class="price">${euro(item.price)}</div>`}
+    </div>`;
+}
+
+function PriceForm({ estimate, onSubmit, busy, label = "✓ Gekauft" }) {
+  const [price, setPrice] = useState(estimate > 0 ? String(estimate) : "");
+  const [error, setError] = useState("");
+  const submit = (e) => {
+    e.preventDefault();
+    const value = parsePrice(price);
+    if (Number.isNaN(value)) return setError("Bitte gib einen gültigen Preis ein.");
+    setError("");
+    onSubmit(value);
+  };
+  return html`
+    <form class="inline-form" novalidate onSubmit=${submit}>
+      <input type="number" step="0.01" min="0" inputmode="decimal" aria-label="Bezahlter Preis in Euro"
+             placeholder="Preis €" value=${price} onInput=${(e) => setPrice(e.target.value)} />
+      <button class="btn green small" disabled=${busy}>${label}</button>
+      ${error && html`<span class="error-text">${error}</span>`}
+    </form>`;
+}
+
+// Besorgen / nicht mehr besorgen / als gekauft markieren
+function ClaimControls({ item, kind, purchase, reload }) {
+  const { me } = useApp();
+  const action = useAction();
+  const run = (fn, text) => action.run(fn, text).then((ok) => ok && reload());
+
+  let body;
+  if (!purchase) {
+    body = html`<button class="btn primary small" disabled=${action.busy}
+      onClick=${() => run(() => claim(item.id, kind, me.name), "Super! Du besorgst das.")}>🎁 Besorge ich</button>`;
+  } else if (purchase.claimed_by !== me.name) {
+    body = html`<span class="badge gold">🔒 ${purchase.claimed_by} besorgt das</span>`;
+  } else if (purchase.purchased) {
+    body = html`<span class="badge green">✅ Von dir gekauft${purchase.actual_price != null ? ` · ${euro(purchase.actual_price)}` : ""}</span>`;
+  } else {
+    body = html`
+      <span class="badge gold">🛍️ Du besorgst das</span>
+      <${PriceForm} estimate=${Number(item.price)} busy=${action.busy}
+        onSubmit=${(value) => run(() => markPurchased(item.id, value), "Als gekauft markiert")} />
+      <button class="link-btn" disabled=${action.busy}
+        onClick=${() => confirm("Wirklich nicht mehr besorgen? Dann können es andere übernehmen.")
+          && run(() => unclaim(item.id), "Freigegeben")}>Nicht mehr besorgen</button>`;
+  }
+  return html`<div class="item-actions">${body}</div>${action.error && html`<span class="error-text">${action.error}</span>`}`;
+}
+
+// Kleines Formular, das sich erst auf Knopfdruck öffnet
+function Collapsible({ open, onOpen, buttonLabel, children }) {
+  if (!open) return html`<button class="btn primary block" onClick=${onOpen}>${buttonLabel}</button>`;
+  return children;
+}
+
+function FormHeader({ title, onClose }) {
+  return html`<div class="row between"><h3 style="margin:0">${title}</h3>
+    <button type="button" class="btn ghost small" onClick=${onClose} aria-label="Schließen">✕</button></div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,84 +132,59 @@ function PersonHeading({ name, children }) {
 // ---------------------------------------------------------------------------
 function MyWishes({ data, reload }) {
   const { me } = useApp();
-  const [editing, setEditing] = useState(null); // null = neuer Wunsch, Objekt = bearbeiten
-  const [formKey, setFormKey] = useState(0);
+  const [editing, setEditing] = useState(null); // null = zu, "new" = neuer Wunsch, Objekt = bearbeiten
   const mine = data.wishes.filter((w) => w.owner === me.name);
   const total = mine.reduce((sum, w) => sum + Number(w.price || 0), 0);
   const limit = CONFIG.budgetLimit;
   const pct = Math.min(100, (total / limit) * 100);
   const color = total > limit ? "var(--red)" : pct > 80 ? "#E0A100" : "#3B8F5A";
 
-  const startEdit = (wish) => { setEditing(wish); setFormKey((k) => k + 1); window.scrollTo({ top: 0, behavior: "smooth" }); };
-  const done = () => { setEditing(null); setFormKey((k) => k + 1); reload(); };
+  const edit = (wish) => { setEditing(wish); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const done = () => { setEditing(null); reload(); };
 
   return html`
-    <div class="card">
-      <div class="row between"><strong>Dein Budget</strong><span>${euro(total)} von ${euro(limit)}</span></div>
-      <div class="progress" style="margin-top:.5rem"><div style=${{ width: `${pct}%`, background: color }}></div></div>
-      <small>Gerechnet mit den geschätzten Preisen deiner Wünsche.</small>
+    <div class="budget">
+      <div class="row between"><span>Budget</span><strong>${euro(total)} / ${euro(limit)}</strong></div>
+      <div class="progress"><div style=${{ width: `${pct}%`, background: color }}></div></div>
     </div>
+    <${Collapsible} open=${editing !== null} onOpen=${() => setEditing("new")} buttonLabel="➕ Wunsch hinzufügen">
+      <${WishForm} key=${editing?.id || "new"} wish=${editing === "new" ? null : editing} mine=${mine}
+        onDone=${done} onCancel=${() => setEditing(null)} />
+    <//>
     <div class="section">
-      <${WishForm} key=${formKey} wish=${editing} mine=${mine} onDone=${done} onCancel=${() => { setEditing(null); setFormKey((k) => k + 1); }} />
-    </div>
-    <div class="section">
-      <h2>Meine Wunschliste</h2>
-      ${mine.length === 0 && html`<${Empty}>Du hast noch keine Wünsche eingetragen.<//>`}
-      ${mine.map((w) => html`<${MyWishCard} key=${w.id} wish=${w} purchase=${data.purchases.find((p) => p.item_id === w.id)}
-                                onEdit=${() => startEdit(w)} reload=${reload} />`)}
+      ${mine.length === 0
+        ? html`<${Empty}>Du hast noch keine Wünsche eingetragen.<//>`
+        : html`<div class="card list">${mine.map((w) => html`<${MyWishItem} key=${w.id} wish=${w}
+            purchase=${data.purchases.find((p) => p.item_id === w.id)} onEdit=${() => edit(w)} reload=${reload} />`)}</div>`}
     </div>`;
 }
 
-function MyWishCard({ wish, purchase, onEdit, reload }) {
-  const del = useAction();
-  const undo = useAction();
+function MyWishItem({ wish, purchase, onEdit, reload }) {
   const { me } = useApp();
+  const action = useAction();
+  const run = (fn, text) => action.run(fn, text).then((ok) => ok && reload());
   const selfBought = purchase && purchase.claimed_by === me.name;
 
-  const remove = () => confirm(`„${wish.name}“ wirklich löschen?`)
-    && del.run(() => deleteWish(wish), "Wunsch gelöscht").then((ok) => ok && reload());
+  const extra = html`
+    ${wish.buy_self ? html`<span class="badge">🛍️ Kaufe ich selbst</span>` : null}
+    ${wish.expert ? html`<span class="badge">👨‍🏫 ${wish.expert}</span>` : null}`;
 
   return html`
-    <div class="card">
-      <div class="row between">
-        <h3>${wish.name}</h3>
-        <${PriceTag} value=${wish.price} />
+    <${GiftItem} item=${wish} extra=${extra}>
+      ${wish.buy_self && html`<div class="item-actions">
+        ${selfBought
+          ? html`<span class="badge green">✅ Gekauft${purchase.actual_price != null ? ` · ${euro(purchase.actual_price)}` : ""}</span>
+                 <button class="link-btn" disabled=${action.busy} onClick=${() => run(() => unclaim(wish.id), "Zurückgesetzt")}>Rückgängig</button>`
+          : html`<${PriceForm} estimate=${Number(wish.price)} busy=${action.busy} label="✓ Selbst gekauft"
+                   onSubmit=${(value) => run(() => claim(wish.id, "wish", me.name, true, value), "Als gekauft markiert")} />`}
+      </div>`}
+      <div class="item-links">
+        <button class="link-btn" onClick=${onEdit}>Bearbeiten</button>
+        <button class="link-btn danger" disabled=${action.busy}
+          onClick=${() => confirm(`„${wish.name}“ wirklich löschen?`) && run(() => deleteWish(wish), "Wunsch gelöscht")}>Löschen</button>
       </div>
-      <div class="row" style="gap:.4rem;margin-bottom:.5rem">
-        ${wish.buy_self ? html`<span class="badge">🛍️ Kaufe ich selbst</span>` : html`<span class="badge">🎁 Andere dürfen es kaufen</span>`}
-        ${wish.expert && html`<span class="badge">👨‍🏫 Experte: ${wish.expert}</span>`}
-      </div>
-      <${GiftDetails} item=${wish} />
-      ${wish.buy_self && (selfBought
-        ? html`<p><span class="badge green">✅ Schon besorgt${purchase.actual_price != null ? ` (${euro(purchase.actual_price)})` : ""}</span>
-            <button class="btn ghost small" disabled=${undo.busy}
-              onClick=${() => undo.run(() => unclaim(wish.id), "Zurückgesetzt").then((ok) => ok && reload())}>Rückgängig</button></p>`
-        : html`<${SelfBuyForm} wish=${wish} reload=${reload} />`)}
-      <div class="row" style="margin-top:.75rem">
-        <button class="btn small" onClick=${onEdit}>✏️ Bearbeiten</button>
-        <button class="btn small danger" disabled=${del.busy} onClick=${remove}>🗑️ Löschen</button>
-      </div>
-      <${Alert} kind="error">${del.error || undo.error}<//>
-    </div>`;
-}
-
-function SelfBuyForm({ wish, reload }) {
-  const { me } = useApp();
-  const [price, setPrice] = useState(Number(wish.price) > 0 ? String(wish.price) : "");
-  const { busy, error, setError, run } = useAction();
-  const submit = async (e) => {
-    e.preventDefault();
-    const value = parsePrice(price);
-    if (Number.isNaN(value)) return setError("Bitte gib einen gültigen Preis ein.");
-    if (await run(() => claim(wish.id, "wish", me.name, true, value), "Als gekauft markiert")) reload();
-  };
-  return html`
-    <form class="row" novalidate onSubmit=${submit}>
-      <input type="number" step="0.01" min="0" inputmode="decimal" style="max-width:140px"
-             aria-label="Tatsächlicher Preis in Euro" placeholder="Preis in €" value=${price} onInput=${(e) => setPrice(e.target.value)} />
-      <button class="btn green small" disabled=${busy}>✓ Als gekauft markieren</button>
-      <${Alert} kind="error">${error && error.includes("schon jemand") ? "Das geht gerade nicht. Frag am besten Dieter oder Gudrun." : error}<//>
-    </form>`;
+      ${action.error && html`<span class="error-text">${action.error.includes("schon jemand") ? "Das geht gerade nicht. Frag am besten Dieter oder Gudrun." : action.error}</span>`}
+    <//>`;
 }
 
 function WishForm({ wish, mine, onDone, onCancel }) {
@@ -240,53 +227,38 @@ function WishForm({ wish, mine, onDone, onCancel }) {
   };
 
   return html`
-    <details class="box" open=${editing || mine.length === 0}>
-      <summary>${editing ? "✏️ Wunsch bearbeiten" : "➕ Neuen Wunsch hinzufügen"}</summary>
-      <form class="form" novalidate onSubmit=${submit}>
-        <label class="field"><span>Was wünschst du dir?</span>
-          <input type="text" maxlength="200" value=${name} onInput=${(e) => setName(e.target.value)} />
-        </label>
-        <label class="field"><span>Beschreibung</span>
-          <textarea maxlength="2000" placeholder="Größe, Farbe, Modell …" value=${description} onInput=${(e) => setDescription(e.target.value)}></textarea>
-        </label>
-        <div class="form-row">
-          <label class="field"><span>Link (optional)</span>
-            <input type="text" inputmode="url" autocapitalize="off" placeholder="https://…" value=${link} onInput=${(e) => setLink(e.target.value)} />
-          </label>
-          <label class="field"><span>Geschätzter Preis (€)</span>
-            <input type="number" step="0.01" min="0" inputmode="decimal" value=${price} onInput=${(e) => setPrice(e.target.value)} />
-          </label>
-        </div>
-        <fieldset style="border:0;padding:0;margin:0">
-          <legend class="field" style="font-weight:600;font-size:.9rem;margin-bottom:.3rem">Wer soll es besorgen?</legend>
-          <label class="check"><input type="radio" name="buy" checked=${!buySelf} onChange=${() => setBuySelf(false)} /> Andere dürfen es kaufen</label>
-          <label class="check"><input type="radio" name="buy" checked=${buySelf} onChange=${() => setBuySelf(true)} /> Ich kaufe es selbst</label>
-        </fieldset>
-        <label class="field"><span>Experte (optional)</span>
-          <select value=${expert} onChange=${(e) => setExpert(e.target.value)}>
-            <option value="">– niemand –</option>
-            ${experts.map((p) => html`<option value=${p.name}>${p.name}</option>`)}
-          </select>
-          <small>Der Experte kümmert sich um diesen Wunsch und bekommt eine Benachrichtigung.</small>
-        </label>
-        ${kept.length > 0 && html`<div>
-          <div class="field" style="font-weight:600;font-size:.9rem">Vorhandene Bilder</div>
-          <div class="row">${kept.map((p) => html`
-            <span class="row" style="gap:.25rem">
-              <${StoredImages} bucket=${BUCKET} paths=${[p]} />
-              <button type="button" class="btn ghost small danger" onClick=${() => setKept(kept.filter((x) => x !== p))}>Entfernen</button>
-            </span>`)}</div>
-        </div>`}
-        <label class="field"><span>Bilder hinzufügen (optional)</span>
+    <form class="card form" novalidate onSubmit=${submit}>
+      <${FormHeader} title=${editing ? "Wunsch bearbeiten" : "Neuer Wunsch"} onClose=${onCancel} />
+      <input type="text" maxlength="200" placeholder="Was wünschst du dir?" aria-label="Wunsch"
+             value=${name} onInput=${(e) => setName(e.target.value)} />
+      <textarea maxlength="2000" rows="2" style="min-height:0" placeholder="Beschreibung: Größe, Farbe, Modell …" aria-label="Beschreibung"
+                value=${description} onInput=${(e) => setDescription(e.target.value)}></textarea>
+      <div class="form-row tight">
+        <input type="text" inputmode="url" autocapitalize="off" placeholder="Link (optional)" aria-label="Link"
+               value=${link} onInput=${(e) => setLink(e.target.value)} />
+        <input type="number" step="0.01" min="0" inputmode="decimal" placeholder="Preis €" aria-label="Geschätzter Preis in Euro"
+               value=${price} onInput=${(e) => setPrice(e.target.value)} />
+      </div>
+      <div class="segmented two" role="radiogroup" aria-label="Wer kauft es?">
+        <button type="button" role="radio" aria-checked=${!buySelf} class=${!buySelf ? "on" : ""} onClick=${() => setBuySelf(false)}>🎁 Andere kaufen</button>
+        <button type="button" role="radio" aria-checked=${buySelf} class=${buySelf ? "on" : ""} onClick=${() => setBuySelf(true)}>🛍️ Kaufe ich selbst</button>
+      </div>
+      <div class="row" style="gap:.5rem">
+        <select class="chip-select" value=${expert} onChange=${(e) => setExpert(e.target.value)} aria-label="Experte">
+          <option value="">👨‍🏫 Experte (optional)</option>
+          ${experts.map((p) => html`<option value=${p.name}>👨‍🏫 ${p.name}</option>`)}
+        </select>
+        <label class="chip file-chip">📷 ${files.length ? `${files.length} Bild${files.length > 1 ? "er" : ""}` : "Bilder"}
           <input type="file" accept="image/*" multiple onChange=${(e) => setFiles([...e.target.files])} />
         </label>
-        <div class="row">
-          <button class="btn primary" disabled=${busy}>${busy ? "Speichern …" : editing ? "💾 Speichern" : "➕ Wunsch hinzufügen"}</button>
-          ${editing && html`<button type="button" class="btn ghost" onClick=${onCancel}>Abbrechen</button>`}
-        </div>
-        <${Alert} kind="error">${error}<//>
-      </form>
-    </details>`;
+      </div>
+      ${kept.length > 0 && html`<div class="row" style="gap:.4rem">${kept.map((p) => html`
+        <span class="thumb-edit"><${StoredImages} bucket=${BUCKET} paths=${[p]} small />
+          <button type="button" class="chip-x" aria-label="Bild entfernen" onClick=${() => setKept(kept.filter((x) => x !== p))}>✕</button></span>`)}
+      </div>`}
+      <button class="btn primary block" disabled=${busy}>${busy ? "Speichern …" : editing ? "Speichern" : "Wunsch hinzufügen"}</button>
+      <${Alert} kind="error">${error}<//>
+    </form>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -296,31 +268,23 @@ function OthersWishes({ data, reload }) {
   const { me, profiles } = useApp();
   const purchaseOf = (id) => data.purchases.find((p) => p.item_id === id);
   const expertTasks = data.wishes.filter((w) => w.expert === me.name);
-  const others = data.wishes.filter((w) => w.owner !== me.name && !w.buy_self);
-  const grouped = groupBy(others, "owner");
+  const grouped = groupBy(data.wishes.filter((w) => w.owner !== me.name && !w.buy_self), "owner");
   const order = profiles.map((p) => p.name).filter((n) => grouped.has(n));
 
   return html`
     ${expertTasks.length > 0 && html`
-      <h2>👨‍🏫 Meine Expertenaufträge</h2>
-      <p class="muted">Bei diesen Wünschen bist du als Experte eingetragen.</p>
-      ${expertTasks.map((w) => html`
-        <div class="card" key=${w.id}>
-          <div class="row between"><h3>${w.name} <small>für ${w.owner}</small></h3><${PriceTag} value=${w.price} /></div>
-          ${w.buy_self && html`<span class="badge">${w.owner} kauft es eigentlich selbst</span>`}
-          <${GiftDetails} item=${w} />
-          <${ClaimControls} item=${w} kind="wish" purchase=${purchaseOf(w.id)} reload=${reload} />
-        </div>`)}`}
-    ${order.length === 0 && html`<${Empty}>Es gibt derzeit keine Wünsche von anderen.<//>`}
+      <h3 style="margin:.25rem 0 .5rem">👨‍🏫 Du bist Experte</h3>
+      <div class="card list">${expertTasks.map((w) => html`<${GiftItem} key=${w.id} item=${w}
+          extra=${html`<span class="muted">für ${w.owner}</span>${w.buy_self ? html`<span class="badge">kauft es selbst</span>` : null}`}>
+        <${ClaimControls} item=${w} kind="wish" purchase=${purchaseOf(w.id)} reload=${reload} />
+      <//>`)}</div>`}
+    ${order.length === 0 && html`<${Empty}>Es gibt noch keine Wünsche von anderen.<//>`}
     ${order.map((owner) => html`
-      <${PersonHeading} name=${owner}>Wünsche von ${owner}<//>
-      ${grouped.get(owner).map((w) => html`
-        <div class="card" key=${w.id}>
-          <div class="row between"><h3>${w.name}</h3><${PriceTag} value=${w.price} /></div>
-          ${w.expert && html`<span class="badge">👨‍🏫 Experte: ${w.expert}</span>`}
-          <${GiftDetails} item=${w} />
-          <${ClaimControls} item=${w} kind="wish" purchase=${purchaseOf(w.id)} reload=${reload} />
-        </div>`)}`)}`;
+      <${PersonHeading} name=${owner} />
+      <div class="card list">${grouped.get(owner).map((w) => html`<${GiftItem} key=${w.id} item=${w}
+          extra=${w.expert ? html`<span class="badge">👨‍🏫 ${w.expert}</span>` : null}>
+        <${ClaimControls} item=${w} kind="wish" purchase=${purchaseOf(w.id)} reload=${reload} />
+      <//>`)}</div>`)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -329,37 +293,32 @@ function OthersWishes({ data, reload }) {
 function Suggestions({ data, reload }) {
   const { me, profiles } = useApp();
   const [editing, setEditing] = useState(null);
-  const [formKey, setFormKey] = useState(0);
   const purchaseOf = (id) => data.purchases.find((p) => p.item_id === id);
   const grouped = groupBy(data.suggestions, "suggested_for");
   const order = profiles.map((p) => p.name).filter((n) => grouped.has(n));
   const del = useAction();
 
-  const startEdit = (s) => { setEditing(s); setFormKey((k) => k + 1); window.scrollTo({ top: 0, behavior: "smooth" }); };
-  const done = () => { setEditing(null); setFormKey((k) => k + 1); reload(); };
+  const edit = (s) => { setEditing(s); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const done = () => { setEditing(null); reload(); };
 
   return html`
-    <${Alert} kind="info">🤫 Vorschläge sind für alle sichtbar, nur nicht für die Person, für die sie gedacht sind.<//>
-    <div class="section">
-      <${SuggestionForm} key=${formKey} suggestion=${editing} onDone=${done}
-        onCancel=${() => { setEditing(null); setFormKey((k) => k + 1); }} />
-    </div>
-    ${order.length === 0 && html`<div class="section"><${Empty}>Noch keine Vorschläge.<//></div>`}
+    <p class="muted" style="margin:0 0 .75rem">🤫 Ideen sind für alle sichtbar – nur nicht für die Person, für die sie gedacht sind.</p>
+    <${Collapsible} open=${editing !== null} onOpen=${() => setEditing("new")} buttonLabel="💡 Idee vorschlagen">
+      <${SuggestionForm} key=${editing?.id || "new"} suggestion=${editing === "new" ? null : editing}
+        onDone=${done} onCancel=${() => setEditing(null)} />
+    <//>
+    ${order.length === 0 && html`<div class="section"><${Empty}>Noch keine Ideen.<//></div>`}
     ${order.map((person) => html`
-      <${PersonHeading} name=${person}>Ideen für ${person}<//>
-      ${grouped.get(person).map((s) => html`
-        <div class="card" key=${s.id}>
-          <div class="row between"><h3>${s.name}</h3><${PriceTag} value=${s.price} /></div>
-          <small>Vorgeschlagen von ${s.suggested_by === me.name ? "dir" : s.suggested_by}</small>
-          <${GiftDetails} item=${s} />
-          <${ClaimControls} item=${s} kind="suggestion" purchase=${purchaseOf(s.id)} reload=${reload} />
-          ${s.suggested_by === me.name && html`<div class="row" style="margin-top:.75rem">
-            <button class="btn small" onClick=${() => startEdit(s)}>✏️ Bearbeiten</button>
-            <button class="btn small danger" disabled=${del.busy}
-              onClick=${() => confirm(`Vorschlag „${s.name}“ löschen?`) && del.run(() => deleteSuggestion(s.id), "Vorschlag gelöscht").then((ok) => ok && reload())}>
-              🗑️ Löschen</button>
-          </div>`}
-        </div>`)}`)}
+      <${PersonHeading} name=${person}>Für ${person}<//>
+      <div class="card list">${grouped.get(person).map((s) => html`<${GiftItem} key=${s.id} item=${s}
+          extra=${html`<span class="muted">von ${s.suggested_by === me.name ? "dir" : s.suggested_by}</span>`}>
+        <${ClaimControls} item=${s} kind="suggestion" purchase=${purchaseOf(s.id)} reload=${reload} />
+        ${s.suggested_by === me.name && html`<div class="item-links">
+          <button class="link-btn" onClick=${() => edit(s)}>Bearbeiten</button>
+          <button class="link-btn danger" disabled=${del.busy}
+            onClick=${() => confirm(`Idee „${s.name}“ löschen?`) && del.run(() => deleteSuggestion(s.id), "Idee gelöscht").then((ok) => ok && reload())}>Löschen</button>
+        </div>`}
+      <//>`)}</div>`)}
     <${Alert} kind="error">${del.error}<//>`;
 }
 
@@ -386,7 +345,7 @@ function SuggestionForm({ suggestion, onDone, onCancel }) {
         id: suggestion?.id, season, by: me.name,
         fields: { suggested_for: target, name: name.trim(), description: description.trim(), link: link.trim(), price: value },
       });
-    }, editing ? "Vorschlag gespeichert" : `Geheimer Vorschlag für ${target} gespeichert`);
+    }, editing ? "Idee gespeichert" : `Geheime Idee für ${target} gespeichert`);
     if (ok) {
       if (!editing) notify("suggestion", saved.id).catch(console.warn);
       onDone();
@@ -394,39 +353,28 @@ function SuggestionForm({ suggestion, onDone, onCancel }) {
   };
 
   return html`
-    <details class="box" open=${editing}>
-      <summary>${editing ? "✏️ Vorschlag bearbeiten" : "💡 Geheimen Geschenkvorschlag machen"}</summary>
-      <form class="form" novalidate onSubmit=${submit}>
-        <label class="field"><span>Für wen?</span>
-          <select value=${target} onChange=${(e) => setTarget(e.target.value)}>
-            ${targets.map((p) => html`<option value=${p.name}>${p.name}</option>`)}
-          </select>
-        </label>
-        <label class="field"><span>Geschenkidee</span>
-          <input type="text" maxlength="200" value=${name} onInput=${(e) => setName(e.target.value)} />
-        </label>
-        <label class="field"><span>Beschreibung / Warum ist das eine gute Idee?</span>
-          <textarea maxlength="2000" value=${description} onInput=${(e) => setDescription(e.target.value)}></textarea>
-        </label>
-        <div class="form-row">
-          <label class="field"><span>Link (optional)</span>
-            <input type="text" inputmode="url" autocapitalize="off" placeholder="https://…" value=${link} onInput=${(e) => setLink(e.target.value)} />
-          </label>
-          <label class="field"><span>Ungefährer Preis (€)</span>
-            <input type="number" step="0.01" min="0" inputmode="decimal" value=${price} onInput=${(e) => setPrice(e.target.value)} />
-          </label>
-        </div>
-        <div class="row">
-          <button class="btn primary" disabled=${busy}>${editing ? "💾 Speichern" : "💡 Vorschlag speichern"}</button>
-          ${editing && html`<button type="button" class="btn ghost" onClick=${onCancel}>Abbrechen</button>`}
-        </div>
-        <${Alert} kind="error">${error}<//>
-      </form>
-    </details>`;
+    <form class="card form" novalidate onSubmit=${submit}>
+      <${FormHeader} title=${editing ? "Idee bearbeiten" : "Neue geheime Idee"} onClose=${onCancel} />
+      <select class="chip-select" value=${target} onChange=${(e) => setTarget(e.target.value)} aria-label="Für wen?">
+        ${targets.map((p) => html`<option value=${p.name}>Für ${p.name}</option>`)}
+      </select>
+      <input type="text" maxlength="200" placeholder="Geschenkidee" aria-label="Geschenkidee"
+             value=${name} onInput=${(e) => setName(e.target.value)} />
+      <textarea maxlength="2000" rows="2" style="min-height:0" placeholder="Warum ist das eine gute Idee?" aria-label="Beschreibung"
+                value=${description} onInput=${(e) => setDescription(e.target.value)}></textarea>
+      <div class="form-row tight">
+        <input type="text" inputmode="url" autocapitalize="off" placeholder="Link (optional)" aria-label="Link"
+               value=${link} onInput=${(e) => setLink(e.target.value)} />
+        <input type="number" step="0.01" min="0" inputmode="decimal" placeholder="Preis €" aria-label="Ungefährer Preis in Euro"
+               value=${price} onInput=${(e) => setPrice(e.target.value)} />
+      </div>
+      <button class="btn primary block" disabled=${busy}>${editing ? "Speichern" : "Idee speichern"}</button>
+      <${Alert} kind="error">${error}<//>
+    </form>`;
 }
 
 // ---------------------------------------------------------------------------
-// Besorgungen & Ausgaben
+// Einkäufe & Ausgaben
 // ---------------------------------------------------------------------------
 function Shopping({ data, reload }) {
   const { me, profiles } = useApp();
@@ -438,60 +386,64 @@ function Shopping({ data, reload }) {
   const itemOf = (p) => (p.item_kind === "wish" ? data.wishes : data.suggestions).find((x) => x.id === p.item_id);
 
   return html`
-    <h2>📋 Noch zu besorgen</h2>
-    ${open.length === 0 && html`<${Empty}>Nichts offen. 🎉<//>`}
-    ${open.map((p) => html`<${OpenPurchase} key=${p.item_id} purchase=${p} item=${itemOf(p)} reload=${reload} />`)}
-
-    <div class="section">
-      <h2>💰 Meine Ausgaben</h2>
-      <div class="metrics">
-        <div class="metric"><div class="label">Ausgegeben</div><div class="value">${euro(spent)}</div></div>
-        <div class="metric"><div class="label">Erstattet</div><div class="value">${euro(reimbursed)}</div></div>
-        <div class="metric"><div class="label">Offen</div><div class="value">${euro(spent - reimbursed)}</div></div>
-      </div>
-      ${bought.length > 0 && html`<${BoughtTable} rows=${bought} itemOf=${itemOf} reload=${reload} />`}
+    <div class="metrics three">
+      <div class="metric"><div class="label">Ausgegeben</div><div class="value">${euro(spent)}</div></div>
+      <div class="metric"><div class="label">Erstattet</div><div class="value">${euro(reimbursed)}</div></div>
+      <div class="metric"><div class="label">Offen</div><div class="value">${euro(spent - reimbursed)}</div></div>
     </div>
+
+    <h3 style="margin:1.25rem 0 .5rem">📋 Noch zu besorgen</h3>
+    ${open.length === 0
+      ? html`<${Empty}>Nichts offen. 🎉<//>`
+      : html`<div class="card list">${open.map((p) => html`<${OpenPurchase} key=${p.item_id} purchase=${p} item=${itemOf(p)} reload=${reload} />`)}</div>`}
+
+    ${bought.length > 0 && html`
+      <h3 style="margin:1.25rem 0 .5rem">✅ Gekauft</h3>
+      <div class="card list">${bought.map((p) => html`<${BoughtItem} key=${p.item_id} purchase=${p} reload=${reload} />`)}</div>`}
 
     ${me.is_admin && html`<${AdminSpending} data=${data} profiles=${profiles} />`}`;
 }
 
 function OpenPurchase({ purchase, item, reload }) {
   const action = useAction();
+  const run = (fn, text) => action.run(fn, text).then((ok) => ok && reload());
   return html`
-    <div class="card">
-      <div class="row between"><h3>${purchase.item_name} <small>für ${purchase.recipient}</small></h3>
-        ${item ? html`<${PriceTag} value=${item.price} />` : html`<span class="badge red">Wunsch wurde gelöscht</span>`}</div>
-      ${item && html`<${GiftDetails} item=${item} images=${false} />`}
-      <${PurchaseForm} itemId=${purchase.item_id} estimate=${Number(item?.price || 0)} reload=${reload} />
-      <button class="btn ghost small" style="margin-top:.4rem" disabled=${action.busy}
-        onClick=${() => confirm("Wirklich nicht mehr besorgen?") && action.run(() => unclaim(purchase.item_id), "Freigegeben").then((ok) => ok && reload())}>
-        ↩︎ Nicht mehr besorgen</button>
-      <${Alert} kind="error">${action.error}<//>
+    <div class="list-item">
+      <div class="list-main">
+        <div class="list-title">${purchase.item_name}</div>
+        <div class="list-meta"><span class="muted">für ${purchase.recipient}</span>
+          ${!item && html`<span class="badge red">Wunsch wurde gelöscht</span>`}</div>
+        <div class="item-actions">
+          <${PriceForm} estimate=${Number(item?.price || 0)} busy=${action.busy}
+            onSubmit=${(value) => run(() => markPurchased(purchase.item_id, value), "Als gekauft markiert")} />
+          <button class="link-btn" disabled=${action.busy}
+            onClick=${() => confirm("Wirklich nicht mehr besorgen?") && run(() => unclaim(purchase.item_id), "Freigegeben")}>Nicht mehr besorgen</button>
+        </div>
+        ${action.error && html`<span class="error-text">${action.error}</span>`}
+      </div>
+      ${item && Number(item.price) > 0 && html`<div class="price">${euro(item.price)}</div>`}
     </div>`;
 }
 
-function BoughtTable({ rows, reload }) {
+function BoughtItem({ purchase, reload }) {
   const action = useAction();
+  const run = (fn, text) => action.run(fn, text).then((ok) => ok && reload());
   return html`
-    <div class="table-wrap" style="margin-top:1rem">
-      <table class="simple">
-        <thead><tr><th>Geschenk</th><th>Für</th><th>Preis</th><th>Erstattet</th><th></th></tr></thead>
-        <tbody>
-          ${rows.map((p) => html`<tr key=${p.item_id}>
-            <td>${p.item_name}</td>
-            <td>${p.recipient}</td>
-            <td>${euro(p.actual_price)}</td>
-            <td><label class="check"><input type="checkbox" checked=${p.reimbursed} disabled=${action.busy}
-              onChange=${(e) => action.run(() => setReimbursed(p.item_id, e.target.checked)).then((ok) => ok && reload())} />
-              ${p.reimbursed ? "Ja" : "Nein"}</label></td>
-            <td><button class="btn ghost small" disabled=${action.busy}
-              onClick=${() => confirm("Kauf rückgängig machen?") && action.run(() => undoPurchased(p.item_id), "Zurückgesetzt").then((ok) => ok && reload())}>
-              Rückgängig</button></td>
-          </tr>`)}
-        </tbody>
-      </table>
-    </div>
-    <${Alert} kind="error">${action.error}<//>`;
+    <div class="list-item">
+      <div class="list-main">
+        <div class="list-title">${purchase.item_name}</div>
+        <div class="list-meta">
+          <span class="muted">für ${purchase.recipient}</span>
+          <button type="button" class=${`chip ${purchase.reimbursed ? "on" : ""}`} aria-pressed=${purchase.reimbursed} disabled=${action.busy}
+            onClick=${() => run(() => setReimbursed(purchase.item_id, !purchase.reimbursed))}>
+            ${purchase.reimbursed ? "✓ Erstattet" : "Nicht erstattet"}</button>
+          <button class="link-btn" disabled=${action.busy}
+            onClick=${() => confirm("Kauf rückgängig machen?") && run(() => undoPurchased(purchase.item_id), "Zurückgesetzt")}>Rückgängig</button>
+        </div>
+        ${action.error && html`<span class="error-text">${action.error}</span>`}
+      </div>
+      <div class="price">${euro(purchase.actual_price)}</div>
+    </div>`;
 }
 
 function AdminSpending({ data, profiles }) {
@@ -501,22 +453,19 @@ function AdminSpending({ data, profiles }) {
   const byBuyer = groupBy(bought, "claimed_by");
   const order = profiles.map((p) => p.name).filter((n) => byBuyer.has(n));
   return html`
-    <div class="section">
-      <h2>👑 Ausgaben aller</h2>
-      <p class="muted">Nur Käufe, die nicht für dich sind.</p>
-      ${order.length === 0 && html`<${Empty}>Noch keine Käufe.<//>`}
-      ${order.map((buyer) => {
-        const rows = byBuyer.get(buyer);
-        const sum = rows.reduce((s, p) => s + Number(p.actual_price || 0), 0);
-        const paid = rows.filter((p) => p.reimbursed).reduce((s, p) => s + Number(p.actual_price || 0), 0);
-        return html`<details class="box" style="margin-top:.6rem" key=${buyer}>
-          <summary>${buyer}: ${euro(sum)} ausgegeben, ${euro(sum - paid)} offen</summary>
-          <div class="table-wrap"><table class="simple">
-            <thead><tr><th>Geschenk</th><th>Für</th><th>Preis</th><th>Erstattet</th></tr></thead>
-            <tbody>${rows.map((p) => html`<tr key=${p.item_id}><td>${p.item_name}</td><td>${p.recipient}</td>
-              <td>${euro(p.actual_price)}</td><td>${p.reimbursed ? "✅" : "–"}</td></tr>`)}</tbody>
-          </table></div>
-        </details>`;
-      })}
-    </div>`;
+    <h3 style="margin:1.5rem 0 .25rem">👑 Ausgaben aller</h3>
+    <p class="muted" style="margin:0 0 .5rem;font-size:.9rem">Nur Käufe, die nicht für dich sind.</p>
+    ${order.length === 0
+      ? html`<${Empty}>Noch keine Käufe.<//>`
+      : html`<div class="card list">${order.map((buyer) => {
+          const rows = byBuyer.get(buyer);
+          const sum = rows.reduce((s, p) => s + Number(p.actual_price || 0), 0);
+          const paid = rows.filter((p) => p.reimbursed).reduce((s, p) => s + Number(p.actual_price || 0), 0);
+          return html`<details class="list-item details-item" key=${buyer}>
+            <summary><span class="list-title">${buyer}</span><span class="muted"> · ${euro(sum - paid)} offen</span><span class="price">${euro(sum)}</span></summary>
+            ${rows.map((p) => html`<div class="row between sub-row" key=${p.item_id}>
+              <span>${p.item_name} <span class="muted">für ${p.recipient}</span></span>
+              <span>${euro(p.actual_price)} ${p.reimbursed ? "✓" : ""}</span></div>`)}
+          </details>`;
+        })}</div>`}`;
 }

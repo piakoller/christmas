@@ -8,20 +8,21 @@ export function SettingsPage() {
   return html`
     <${BackLink} />
     <h1>⚙️ Einstellungen</h1>
-    <div class="stack">
-      <${NotificationSettings} />
+    <${NotificationSettings} />
+    <h3 class="settings-head">🔑 Konto</h3>
+    <div class="card list">
       <${ChangePin} />
-      ${me.is_admin && html`<${AdminArea} />`}
-      <div class="card">
-        <h3>Abmelden</h3>
-        <p class="muted">Meldet dich auf diesem Gerät ab.</p>
-        <button class="btn" onClick=${() => logout()}>🚪 Abmelden</button>
+      <div class="list-item switch-row">
+        <span>Angemeldet als <strong>${me.name}</strong></span>
+        <button class="btn small" onClick=${() => logout()}>🚪 Abmelden</button>
       </div>
-    </div>`;
+    </div>
+    ${me.is_admin && html`<${AdminArea} />`}`;
 }
 
 function ChangePin() {
   const { me } = useApp();
+  const [open, setOpen] = useState(false);
   const [oldPin, setOldPin] = useState("");
   const [newPin, setNewPin] = useState("");
   const [repeat, setRepeat] = useState("");
@@ -32,27 +33,27 @@ function ChangePin() {
     if (!isValidPin(newPin)) return setError("Die PIN muss aus 4 bis 8 Ziffern bestehen.");
     if (newPin.trim() !== repeat.trim()) return setError("Die beiden PINs stimmen nicht überein.");
     const ok = await run(() => changePin(me.name, oldPin, newPin), "PIN geändert. Andere Geräte sind jetzt abgemeldet.");
-    if (ok) { setOldPin(""); setNewPin(""); setRepeat(""); }
+    if (ok) { setOldPin(""); setNewPin(""); setRepeat(""); setOpen(false); }
   };
 
+  if (!open) {
+    return html`<div class="list-item switch-row">
+      <span>PIN ändern</span>
+      <button class="btn small" onClick=${() => setOpen(true)}>Ändern</button>
+    </div>`;
+  }
+  const pinInput = (value, set, placeholder, autocomplete) => html`<input type="password" inputmode="numeric" pattern="[0-9]*"
+    autocomplete=${autocomplete} placeholder=${placeholder} aria-label=${placeholder} value=${value} onInput=${(e) => set(e.target.value)} />`;
   return html`
-    <form class="card form" novalidate onSubmit=${submit}>
-      <h3>🔑 PIN ändern</h3>
-      <label class="field"><span>Aktuelle PIN</span>
-        <input type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="current-password"
-               value=${oldPin} onInput=${(e) => setOldPin(e.target.value)} />
-      </label>
-      <div class="form-row">
-        <label class="field"><span>Neue PIN</span>
-          <input type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="new-password"
-                 placeholder="4 bis 8 Ziffern" value=${newPin} onInput=${(e) => setNewPin(e.target.value)} />
-        </label>
-        <label class="field"><span>Neue PIN wiederholen</span>
-          <input type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="new-password"
-                 value=${repeat} onInput=${(e) => setRepeat(e.target.value)} />
-        </label>
+    <form class="list-item form" novalidate onSubmit=${submit} style="flex-direction:column;align-items:stretch">
+      <div class="row between"><strong>PIN ändern</strong>
+        <button type="button" class="btn ghost small" aria-label="Schließen" onClick=${() => setOpen(false)}>✕</button></div>
+      ${pinInput(oldPin, setOldPin, "Aktuelle PIN", "current-password")}
+      <div class="form-row tight">
+        ${pinInput(newPin, setNewPin, "Neue PIN (4–8 Ziffern)", "new-password")}
+        ${pinInput(repeat, setRepeat, "Neue PIN wiederholen", "new-password")}
       </div>
-      <div><button class="btn green" disabled=${busy || !oldPin}>PIN ändern</button></div>
+      <button class="btn green block" disabled=${busy || !oldPin}>PIN ändern</button>
       <${Alert} kind="error">${error}<//>
     </form>`;
 }
@@ -75,22 +76,22 @@ function AdminArea() {
   }, value ? "Eingeschaltet" : "Ausgeschaltet");
 
   return html`
-    <div class="card form">
-      <h3>👑 Verwaltung</h3>
-      <div>
-        <label class="field"><span>PIN zurücksetzen für</span>
-          <select value=${target} onChange=${(e) => setTarget(e.target.value)}>
+    <h3 class="settings-head">👑 Verwaltung</h3>
+    <div class="card list">
+      <label class="list-item switch-row">
+        <span>Adventskalender für alle anzeigen</span>
+        <input type="checkbox" class="switch" checked=${settings.advent_calendar === true} disabled=${toggle.busy}
+               onChange=${(e) => setFlag("advent_calendar", e.target.checked)} />
+      </label>
+      <div class="list-item switch-row">
+        <span style="white-space:nowrap">PIN zurücksetzen</span>
+        <span class="row" style="gap:.4rem;flex-wrap:nowrap">
+          <select class="chip-select" value=${target} onChange=${(e) => setTarget(e.target.value)} aria-label="Für wen?">
             ${others.map((p) => html`<option value=${p.name}>${p.name}</option>`)}
           </select>
-        </label>
-        <div style="margin-top:.6rem"><button class="btn" disabled=${reset.busy} onClick=${doReset}>PIN zurücksetzen</button></div>
-        <${Alert} kind="error">${reset.error}<//>
+          <button class="btn small" disabled=${reset.busy} onClick=${doReset}>Zurücksetzen</button>
+        </span>
       </div>
-      <label class="check">
-        <input type="checkbox" checked=${settings.advent_calendar === true} disabled=${toggle.busy}
-               onChange=${(e) => setFlag("advent_calendar", e.target.checked)} />
-        Adventskalender für alle anzeigen
-      </label>
-      <${Alert} kind="error">${toggle.error}<//>
-    </div>`;
+    </div>
+    <${Alert} kind="error">${reset.error || toggle.error}<//>`;
 }

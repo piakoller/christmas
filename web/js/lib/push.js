@@ -60,9 +60,9 @@ export async function forgetDeviceOnLogout() {
 }
 
 const PREFS = [
-  { key: "expert", label: "👨‍🏫 Ich werde als Experte für einen Wunsch eingetragen" },
+  { key: "expert", label: "👨‍🏫 Ich bin Experte für einen Wunsch" },
   { key: "meal", label: "🍽️ Mir wird ein Gericht zugeteilt" },
-  { key: "suggestion", label: "🤫 Jemand macht einen neuen geheimen Geschenkvorschlag" },
+  { key: "suggestion", label: "🤫 Neue geheime Geschenkidee" },
 ];
 
 export function NotificationSettings() {
@@ -99,39 +99,34 @@ export function NotificationSettings() {
     if (ok) setPrefs(next);
   };
 
-  let deviceArea;
+  let deviceRow;
   if (!pushSupported() && isIOS() && !isStandalone()) {
-    deviceArea = html`<${Alert} kind="info">
+    deviceRow = html`<div class="list-item"><div class="list-sub">
       <strong>iPhone/iPad:</strong> Benachrichtigungen gehen nur, wenn die App auf dem Home-Bildschirm liegt:
-      unten auf <strong>Teilen</strong> (□↑) tippen → <strong>„Zum Home-Bildschirm“</strong> → die App von dort öffnen
-      und hier Benachrichtigungen aktivieren.<//>`;
+      <strong>Teilen</strong> (□↑) → <strong>„Zum Home-Bildschirm“</strong>, dann die App von dort öffnen.</div></div>`;
   } else if (!pushSupported()) {
-    deviceArea = html`<${Alert} kind="warn">Dieser Browser unterstützt keine Benachrichtigungen.<//>`;
+    deviceRow = html`<div class="list-item"><div class="list-sub">Dieser Browser unterstützt keine Benachrichtigungen.</div></div>`;
   } else {
-    deviceArea = html`
-      <label class="check">
-        <input type="checkbox" checked=${deviceOn === true} disabled=${deviceOn === null || device.busy}
+    deviceRow = html`
+      <label class="list-item switch-row">
+        <span><strong>Auf diesem Gerät</strong>
+          ${deviceOn && html`<br /><button type="button" class="link-btn" disabled=${test.busy}
+            onClick=${(e) => { e.preventDefault(); test.run(() => notify("test"), "Test-Nachricht verschickt"); }}>Test-Nachricht schicken</button>`}
+        </span>
+        <input type="checkbox" class="switch" checked=${deviceOn === true} disabled=${deviceOn === null || device.busy}
                onChange=${(e) => toggleDevice(e.target.checked)} />
-        <strong>Benachrichtigungen auf diesem Gerät</strong>
-      </label>
-      ${deviceOn && html`<div><button class="btn small" disabled=${test.busy}
-        onClick=${() => test.run(() => notify("test"), "Test-Nachricht verschickt")}>Test-Nachricht schicken</button></div>`}
-      <${Alert} kind="error">${device.error || test.error}<//>`;
+      </label>`;
   }
 
   return html`
-    <div class="card form">
-      <h3>🔔 Benachrichtigungen</h3>
-      ${deviceArea}
-      <div>
-        <div style="font-weight:600;margin-bottom:.4rem">Benachrichtige mich, wenn …</div>
-        ${PREFS.map((p) => html`<label class="check" style="margin:.35rem 0">
-          <input type="checkbox" checked=${prefs[p.key]} disabled=${prefAction.busy}
-                 onChange=${(e) => togglePref(p.key, e.target.checked)} />
-          ${p.label}
-        </label>`)}
-        <small>Gilt für alle deine Geräte, auf denen Benachrichtigungen aktiviert sind.</small>
-      </div>
-      <${Alert} kind="error">${prefAction.error}<//>
-    </div>`;
+    <h3 class="settings-head">🔔 Benachrichtigungen</h3>
+    <div class="card list">
+      ${deviceRow}
+      ${PREFS.map((p) => html`<label class="list-item switch-row" key=${p.key}>
+        <span>${p.label}</span>
+        <input type="checkbox" class="switch" checked=${prefs[p.key]} disabled=${prefAction.busy}
+               onChange=${(e) => togglePref(p.key, e.target.checked)} />
+      </label>`)}
+    </div>
+    <${Alert} kind="error">${device.error || test.error || prefAction.error}<//>`;
 }

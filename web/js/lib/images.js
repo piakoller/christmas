@@ -53,7 +53,7 @@ export async function signedUrls(bucket, paths) {
   return paths.map((p) => urlCache.get(`${bucket}/${p}`)?.url).filter(Boolean);
 }
 
-export function StoredImages({ bucket, paths }) {
+export function StoredImages({ bucket, paths, small = false }) {
   const [urls, setUrls] = useState([]);
   const [open, setOpen] = useState(null);
   const key = (paths || []).join("|");
@@ -63,7 +63,7 @@ export function StoredImages({ bucket, paths }) {
   }, [key]);
   if (!urls.length) return null;
   return html`
-    <div class="images">
+    <div class=${`images ${small ? "small" : ""}`}>
       ${urls.map((u) => html`<img src=${u} alt="Bild zum Wunsch" loading="lazy" onClick=${() => setOpen(u)} />`)}
     </div>
     <${Lightbox} src=${open} onClose=${() => setOpen(null)} />`;
