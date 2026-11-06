@@ -247,6 +247,40 @@ details.box[open] > summary { margin-bottom: .75rem; }
 }
 .chip.on { background: var(--ok-bg); border-color: #B8D9C2; color: var(--ok); }
 
+.segmented.four { grid-template-columns: repeat(4, 1fr); }
+.segmented.four button { font-size: .82rem; padding: .5rem .15rem; }
+.count-dot { display: inline-block; min-width: 1.15rem; padding: 0 .3rem; border-radius: 999px; background: var(--ok-bg); color: var(--ok); font-size: .72rem; }
+
+/* Kompakte Listen (z. B. Gerichte) */
+.card.list { padding: 0 1rem; }
+.list-item { display: flex; gap: .75rem; align-items: flex-start; padding: .75rem 0; border-top: 1px solid var(--border); }
+.list-item:first-child { border-top: 0; }
+.list-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .2rem; }
+.list-title { font-weight: 700; }
+.list-sub { color: var(--muted); font-size: .9rem; white-space: pre-line; }
+.list-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .6rem; font-size: .85rem; margin-top: .15rem; }
+.vote {
+  flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: .05rem; min-width: 3rem;
+  font: inherit; font-size: 1.1rem; padding: .35rem .5rem; border-radius: var(--radius-sm); cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface);
+}
+.vote span { font-size: .8rem; font-weight: 700; color: var(--muted); }
+.vote.on { background: var(--ok-bg); border-color: #B8D9C2; }
+.vote.on span { color: var(--ok); }
+.link-btn { font: inherit; font-size: .85rem; border: 0; background: none; padding: 0; cursor: pointer; text-decoration: underline; color: var(--muted); }
+.link-btn.danger { color: var(--danger); }
+select.chip-select {
+  width: auto; max-width: 100%; font-size: .85rem; font-weight: 600; padding: .25rem 1.6rem .25rem .7rem;
+  border-radius: 999px; background-color: var(--surface-2); border: 1px solid var(--border);
+}
+
+/* Menüplan */
+.plan-slot { padding: .6rem 0; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: .4rem; }
+.card > h3 + .plan-slot { border-top: 0; }
+.plan-cat { font-weight: 600; font-size: .92rem; }
+.chip .chip-x { font: inherit; border: 0; background: none; cursor: pointer; padding: 0 0 0 .3rem; color: inherit; opacity: .7; }
+span.chip { display: inline-flex; align-items: center; }
+
 .empty { color: var(--muted); padding: 1rem; text-align: center; background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius); }
 .loading { color: var(--muted); padding: 2rem; text-align: center; }
 

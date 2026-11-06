@@ -1,4 +1,4 @@
-import { html, useState, useApp, useLoader, useAction, Alert, BackLink, Loading, Empty } from "../ui.js";
+import { html, useState, useApp, useLoader, useAction, navigate, Alert, BackLink, Loading, Empty } from "../ui.js";
 import { supabase, check } from "../supabase.js";
 import { christmasDays } from "../lib/season.js";
 import { notify } from "../lib/push.js";
@@ -8,6 +8,11 @@ const CATEGORIES = [
   { key: "Hauptspeise", icon: "🍖" },
   { key: "Nachspeise", icon: "🍰" },
   { key: "Snacks", icon: "🥨" },
+];
+
+const TABS = [
+  { key: "vorschlaege", label: "🍴 Vorschläge" },
+  { key: "plan", label: "📅 Menüplan" },
 ];
 
 async function loadMeals(season) {
@@ -25,38 +30,55 @@ async function loadMeals(season) {
   };
 }
 
-export function MealsPage() {
+export function MealsPage({ params }) {
   const { season } = useApp();
+  const tab = TABS.some((t) => t.key === params.tab) ? params.tab : "vorschlaege";
   const { data, error, loading, reload } = useLoader(() => loadMeals(season), [season]);
+
   return html`
     <${BackLink} />
     <h1>🍽️ Essensplanung</h1>
+    <div class="tabs" role="tablist">
+      ${TABS.map((t) => html`<button role="tab" aria-selected=${tab === t.key} class=${tab === t.key ? "active" : ""}
+        onClick=${() => navigate("essen", { tab: t.key })}>${t.label}</button>`)}
+    </div>
     ${error && html`<${Alert} kind="error">${error.message}<//>`}
     ${loading && !data && html`<${Loading} />`}
-    ${data && html`
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start">
-        <div>
-          <h2>🍴 Gerichtsvorschläge</h2>
-          <${DishForm} onDone=${reload} />
-          <${DishList} data=${data} reload=${reload} />
-        </div>
-        <div>
-          <h2>📅 Wann gibt es was?</h2>
-          <${Schedule} data=${data} reload=${reload} />
-        </div>
-      </div>`}`;
+    ${data && tab === "vorschlaege" && html`<${Proposals} data=${data} reload=${reload} />`}
+    ${data && tab === "plan" && html`<${MenuPlan} data=${data} reload=${reload} />`}`;
 }
 
-function ResponsibleSelect({ value, onChange, disabled }) {
+// ---------------------------------------------------------------------------
+// Vorschläge
+// ---------------------------------------------------------------------------
+function Proposals({ data, reload }) {
+  return html`
+    <${DishForm} onDone=${reload} />
+    ${data.dishes.length === 0 && html`<div class="section"><${Empty}>Noch keine Gerichte vorgeschlagen.<//></div>`}
+    ${CATEGORIES.map((cat) => {
+      const dishes = data.dishes.filter((d) => d.category === cat.key);
+      if (!dishes.length) return null;
+      return html`<div class="section" key=${cat.key}>
+        <h3>${cat.icon} ${cat.key}</h3>
+        <div class="card list">
+          ${dishes.map((d) => html`<${DishItem} key=${d.id} dish=${d} votes=${data.votes.filter((v) => v.dish_id === d.id)} reload=${reload} />`)}
+        </div>
+      </div>`;
+    })}`;
+}
+
+function ResponsibleSelect({ value, onChange, disabled, className = "" }) {
   const { people } = useApp();
-  return html`<select value=${value || ""} disabled=${disabled} onChange=${(e) => onChange(e.target.value || null)}>
-    <option value="">– noch offen –</option>
-    ${people.map((p) => html`<option value=${p.name}>${p.name}</option>`)}
+  return html`<select class=${className} value=${value || ""} disabled=${disabled} aria-label="Wer kümmert sich?"
+      onChange=${(e) => onChange(e.target.value || null)}>
+    <option value="">👤 Wer kümmert sich?</option>
+    ${people.map((p) => html`<option value=${p.name}>👤 ${p.name}</option>`)}
   </select>`;
 }
 
 function DishForm({ onDone }) {
   const { me, season } = useApp();
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [category, setCategory] = useState("Hauptspeise");
   const [description, setDescription] = useState("");
@@ -74,50 +96,33 @@ function DishForm({ onDone }) {
     }, `„${name.trim()}“ vorgeschlagen`);
     if (ok) {
       if (saved.responsible && saved.responsible !== me.name) notify("meal", saved.id).catch(console.warn);
-      setName(""); setDescription(""); setResponsible(null);
+      setName(""); setDescription(""); setResponsible(null); setOpen(false);
       onDone();
     }
   };
 
+  if (!open) {
+    return html`<button class="btn primary block" onClick=${() => setOpen(true)}>➕ Gericht vorschlagen</button>`;
+  }
   return html`
-    <details class="box" style="margin-bottom:1rem">
-      <summary>➕ Neues Gericht vorschlagen</summary>
-      <form class="form" novalidate onSubmit=${submit}>
-        <label class="field"><span>Gericht</span>
-          <input type="text" maxlength="200" placeholder="z. B. Raclette" value=${name} onInput=${(e) => setName(e.target.value)} />
-        </label>
-        <div class="form-row">
-          <label class="field"><span>Kategorie</span>
-            <select value=${category} onChange=${(e) => setCategory(e.target.value)}>
-              ${CATEGORIES.map((c) => html`<option value=${c.key}>${c.icon} ${c.key}</option>`)}
-            </select>
-          </label>
-          <label class="field"><span>Wer kümmert sich?</span>
-            <${ResponsibleSelect} value=${responsible} onChange=${setResponsible} />
-          </label>
-        </div>
-        <label class="field"><span>Beschreibung / Notizen</span>
-          <textarea maxlength="2000" placeholder="Zutaten, Zubereitung …" value=${description} onInput=${(e) => setDescription(e.target.value)}></textarea>
-        </label>
-        <div><button class="btn primary" disabled=${busy}>Vorschlagen</button></div>
-        <${Alert} kind="error">${error}<//>
-      </form>
-    </details>`;
+    <form class="card form" novalidate onSubmit=${submit}>
+      <div class="row between"><h3 style="margin:0">Neues Gericht</h3>
+        <button type="button" class="btn ghost small" onClick=${() => setOpen(false)} aria-label="Schließen">✕</button></div>
+      <input type="text" maxlength="200" placeholder="Gericht, z. B. Raclette" aria-label="Gericht"
+             value=${name} onInput=${(e) => setName(e.target.value)} />
+      <div class="segmented four" role="radiogroup" aria-label="Kategorie">
+        ${CATEGORIES.map((c) => html`<button type="button" role="radio" aria-checked=${category === c.key}
+          class=${category === c.key ? "on" : ""} onClick=${() => setCategory(c.key)} title=${c.key}>${c.icon} ${c.key === "Hauptspeise" ? "Haupt" : c.key === "Nachspeise" ? "Dessert" : c.key === "Vorspeise" ? "Vorsp." : c.key}</button>`)}
+      </div>
+      <${ResponsibleSelect} value=${responsible} onChange=${setResponsible} />
+      <textarea maxlength="2000" rows="2" style="min-height:0" placeholder="Notizen (optional)" aria-label="Notizen"
+                value=${description} onInput=${(e) => setDescription(e.target.value)}></textarea>
+      <button class="btn primary block" disabled=${busy}>Vorschlagen</button>
+      <${Alert} kind="error">${error}<//>
+    </form>`;
 }
 
-function DishList({ data, reload }) {
-  if (data.dishes.length === 0) return html`<${Empty}>Noch keine Gerichtsvorschläge.<//>`;
-  return CATEGORIES.map((cat) => {
-    const dishes = data.dishes.filter((d) => d.category === cat.key);
-    if (!dishes.length) return null;
-    return html`<div key=${cat.key} style="margin-top:1rem">
-      <h3>${cat.icon} ${cat.key}</h3>
-      ${dishes.map((d) => html`<${DishCard} key=${d.id} dish=${d} votes=${data.votes.filter((v) => v.dish_id === d.id)} reload=${reload} />`)}
-    </div>`;
-  });
-}
-
-function DishCard({ dish, votes, reload }) {
+function DishItem({ dish, votes, reload }) {
   const { me } = useApp();
   const action = useAction();
   const voted = votes.some((v) => v.voter === me.name);
@@ -133,69 +138,87 @@ function DishCard({ dish, votes, reload }) {
     if (name && name !== me.name) notify("meal", dish.id).catch(console.warn);
   }, name ? `${name} kümmert sich darum` : "Zuständigkeit entfernt").then((ok) => ok && reload());
 
-  const remove = () => confirm(`„${dish.name}“ löschen? Es verschwindet auch aus dem Tagesplan.`)
+  const remove = () => confirm(`„${dish.name}“ löschen? Es verschwindet auch aus dem Menüplan.`)
     && action.run(async () => check(await supabase.from("dishes").delete().eq("id", dish.id), "Konnte nicht gelöscht werden"), "Gericht gelöscht")
       .then((ok) => ok && reload());
 
   return html`
-    <div class="card">
-      <div class="row between"><strong>${dish.name}</strong>
-        <button class=${`btn small ${voted ? "green" : ""}`} disabled=${action.busy} onClick=${toggleVote}
-                aria-pressed=${voted} title=${voted ? "Stimme zurücknehmen" : "Dafür stimmen"}>👍 ${votes.length}</button>
+    <div class="list-item">
+      <div class="list-main">
+        <div class="list-title">${dish.name}</div>
+        ${dish.description && html`<div class="list-sub">${dish.description}</div>`}
+        <div class="list-meta">
+          <${ResponsibleSelect} className="chip-select" value=${dish.responsible} disabled=${action.busy} onChange=${setResponsible} />
+          <span class="muted">von ${dish.proposed_by === me.name ? "dir" : dish.proposed_by}</span>
+          ${dish.proposed_by === me.name && html`<button class="link-btn danger" disabled=${action.busy} onClick=${remove}>Löschen</button>`}
+        </div>
+        <${Alert} kind="error">${action.error}<//>
       </div>
-      ${dish.description && html`<p class="muted" style="white-space:pre-line;margin:.35rem 0">${dish.description}</p>`}
-      <small>Vorgeschlagen von ${dish.proposed_by}${votes.length ? ` · Dafür: ${votes.map((v) => v.voter).join(", ")}` : ""}</small>
-      <div class="row" style="margin-top:.5rem">
-        <label class="field" style="flex:1;min-width:180px"><span>Wer kümmert sich?</span>
-          <${ResponsibleSelect} value=${dish.responsible} disabled=${action.busy} onChange=${setResponsible} />
-        </label>
-        ${dish.proposed_by === me.name && html`<button class="btn small danger" style="align-self:flex-end" disabled=${action.busy} onClick=${remove}>🗑️</button>`}
-      </div>
-      <${Alert} kind="error">${action.error}<//>
+      <button class=${`vote ${voted ? "on" : ""}`} disabled=${action.busy} onClick=${toggleVote} aria-pressed=${voted}
+              title=${votes.length ? `Dafür: ${votes.map((v) => v.voter).join(", ")}` : "Dafür stimmen"}>
+        👍<span>${votes.length}</span>
+      </button>
     </div>`;
 }
 
-function Schedule({ data, reload }) {
+// ---------------------------------------------------------------------------
+// Menüplan: ein Tag nach dem anderen
+// ---------------------------------------------------------------------------
+function MenuPlan({ data, reload }) {
   const { season } = useApp();
-  return christmasDays(season).map((day) => html`
-    <div class="card" key=${day.date}>
-      <h3>${day.emoji} ${day.name}</h3>
-      ${CATEGORIES.map((cat) => html`<${ScheduleSlot} key=${cat.key} day=${day.date} category=${cat} data=${data} reload=${reload} />`)}
-    </div>`);
+  const days = christmasDays(season);
+  const [selected, setSelected] = useState(days[1].date); // Heiligabend
+  const day = days.find((d) => d.date === selected);
+
+  if (data.dishes.length === 0) {
+    return html`<${Empty}>Schlagt zuerst Gerichte vor, dann könnt ihr sie hier auf die Tage verteilen.
+      <div style="margin-top:.75rem"><button class="btn" onClick=${() => navigate("essen", { tab: "vorschlaege" })}>Zu den Vorschlägen</button></div><//>`;
+  }
+
+  const countFor = (date) => data.schedule.filter((s) => s.day === date).length;
+  return html`
+    <div class="segmented four" role="tablist" aria-label="Tag">
+      ${days.map((d) => html`<button type="button" role="tab" aria-selected=${selected === d.date}
+        class=${selected === d.date ? "on" : ""} onClick=${() => setSelected(d.date)}>
+        ${d.short}${countFor(d.date) ? html` <span class="count-dot">${countFor(d.date)}</span>` : ""}
+      </button>`)}
+    </div>
+    <div class="card" style="margin-top:.75rem">
+      <h3>${day.emoji} ${day.title}</h3>
+      ${CATEGORIES.map((cat) => html`<${PlanSlot} key=${cat.key + selected} day=${selected} category=${cat} data=${data} reload=${reload} />`)}
+    </div>`;
 }
 
-function ScheduleSlot({ day, category, data, reload }) {
+function PlanSlot({ day, category, data, reload }) {
   const { season } = useApp();
-  const [choice, setChoice] = useState("");
   const action = useAction();
   const assigned = data.schedule.filter((s) => s.day === day && s.category === category.key)
     .map((s) => data.dishes.find((d) => d.id === s.dish_id)).filter(Boolean);
   const options = data.dishes.filter((d) => d.category === category.key && !assigned.some((a) => a.id === d.id));
+  if (!assigned.length && !options.length) return null; // keine Gerichte dieser Art – Zeile ausblenden
 
-  const add = () => choice && action.run(async () => {
-    check(await supabase.from("meal_schedule").insert({ season, day, category: category.key, dish_id: choice }), "Konnte nicht eingeplant werden");
-  }).then((ok) => { if (ok) { setChoice(""); reload(); } });
+  const add = (dishId) => dishId && action.run(async () => {
+    check(await supabase.from("meal_schedule").insert({ season, day, category: category.key, dish_id: dishId }), "Konnte nicht eingeplant werden");
+  }).then((ok) => ok && reload());
 
   const remove = (dishId) => action.run(async () => {
     check(await supabase.from("meal_schedule").delete().eq("day", day).eq("category", category.key).eq("dish_id", dishId), "Konnte nicht entfernt werden");
   }).then((ok) => ok && reload());
 
   return html`
-    <div style="margin:.6rem 0">
-      <div style="font-weight:600;font-size:.92rem">${category.icon} ${category.key}</div>
-      ${assigned.map((d) => html`<div class="row between" key=${d.id} style="padding:.15rem 0">
-        <span>• ${d.name}${d.responsible ? html` <small class="muted">(${d.responsible})</small>` : ""}</span>
-        <button class="btn ghost small" aria-label=${`${d.name} entfernen`} disabled=${action.busy} onClick=${() => remove(d.id)}>✕</button>
-      </div>`)}
-      ${options.length > 0
-        ? html`<div class="row" style="margin-top:.25rem">
-            <select style="flex:1" value=${choice} onChange=${(e) => setChoice(e.target.value)} aria-label=${`${category.key} hinzufügen`}>
-              <option value="">${category.key} hinzufügen …</option>
-              ${options.map((d) => html`<option value=${d.id}>${d.name}</option>`)}
-            </select>
-            <button class="btn small" disabled=${!choice || action.busy} onClick=${add}>Hinzufügen</button>
-          </div>`
-        : assigned.length === 0 && html`<small class="muted">Keine ${category.key}-Vorschläge vorhanden</small>`}
+    <div class="plan-slot">
+      <div class="plan-cat">${category.icon} ${category.key}</div>
+      <div class="chips">
+        ${assigned.map((d) => html`<span class="chip on" key=${d.id}>
+          ${d.name}${d.responsible ? html` <small>· ${d.responsible}</small>` : ""}
+          <button class="chip-x" aria-label=${`${d.name} entfernen`} disabled=${action.busy} onClick=${() => remove(d.id)}>✕</button>
+        </span>`)}
+        ${options.length > 0 && html`<select class="chip-select" value="" disabled=${action.busy}
+            aria-label=${`${category.key} hinzufügen`} onChange=${(e) => add(e.target.value)}>
+          <option value="">＋ hinzufügen</option>
+          ${options.map((d) => html`<option value=${d.id}>${d.name}</option>`)}
+        </select>`}
+      </div>
       <${Alert} kind="error">${action.error}<//>
     </div>`;
 }
