@@ -25,7 +25,14 @@ except ImportError:
     SUPABASE_AVAILABLE = False
 
 # --- Configuration ---
-ALL_USERS = ["Dieter", "Gudrun", "Lukas", "Pia", "Emmy", "Tim"]
+ALL_USERS = ["Dieter", "Gudrun", "Lukas", "Pia", "Emmy", "Tim", "W11"]
+# Shared accounts (not a person): W11 collects gifts meant for the whole family.
+FAMILY_ACCOUNTS = ["W11"]
+PEOPLE = [u for u in ALL_USERS if u not in FAMILY_ACCOUNTS]
+
+
+def is_family_account(user: str) -> bool:
+    return user in FAMILY_ACCOUNTS
 
 
 def _load_user_credentials() -> Dict[str, str]:
@@ -457,6 +464,7 @@ AVATAR_COLORS = {
     "Pia": ("#EAF3DE", "#27500A"),
     "Emmy": ("#FBEAF0", "#72243E"),
     "Tim": ("#E1F5EE", "#085041"),
+    "W11": ("#1E3A2B", "#FFD666"),
 }
 
 
@@ -844,7 +852,7 @@ def dashboard_page():
     tiles = [
         ("wishlist", "#FCE8E6", f"{len(my_wishes)} eigene Wünsche · {len(my_open_tasks)} offene Besorgungen"),
         ("meals", "#E6F2EA", f"{len(proposals)} Gerichte vorgeschlagen"),
-        ("attendance", "#E7EEF8", f"{len(attendance)} von {len(ALL_USERS)} haben sich eingetragen"),
+        ("attendance", "#E7EEF8", f"{len([u for u in attendance if u in PEOPLE])} von {len(PEOPLE)} haben sich eingetragen"),
         ("advent", "#FFF4D6", advent_stat),
     ]
     tiles = [t for t in tiles if t[0] in PAGES]
@@ -959,7 +967,7 @@ def wishlist_page():
                     buy_option_index = 1 if (wish_to_edit and wish_to_edit.get("buy_self")) else 0
                     buy_option = st.radio("Wer soll es besorgen?", buy_options, index=buy_option_index, horizontal=True)
                     
-                    other_users = [user for user in ALL_USERS if user != st.session_state['username']]
+                    other_users = [user for user in PEOPLE if user != st.session_state['username']]
                     expert_options = [""] + other_users
                     responsible = wish_to_edit.get("responsible_person") if wish_to_edit else None
                     expert_index = expert_options.index(responsible) if responsible and responsible in expert_options else 0
@@ -1618,7 +1626,7 @@ def meal_planning_page():
                 dish_name = st.text_input("Gericht (z.B. Gans, Raclette, Fondue...)")
                 category = st.selectbox("Kategorie", list(categories.keys()))
                 dish_desc = st.text_area("Beschreibung / Notizen", placeholder="z.B. Zutaten, Zubereitungshinweise...")
-                responsible = st.selectbox("Wer kümmert sich?", [""] + ALL_USERS)
+                responsible = st.selectbox("Wer kümmert sich?", [""] + PEOPLE)
                 
                 if st.form_submit_button("💾 Vorschlag speichern"):
                     if dish_name:
@@ -1802,95 +1810,98 @@ def attendance_page():
     if 'attendance' not in st.session_state.planning_data:
         st.session_state.planning_data['attendance'] = {}
     
-    # Check if user has already submitted attendance
-    user_has_submitted = st.session_state['username'] in st.session_state.planning_data['attendance']
+    if is_family_account(st.session_state['username']):
+        st.info("W11 ist das Familienkonto. Die Anwesenheit trägt jede Person mit ihrem eigenen Login ein.")
+    else:
+        # Check if user has already submitted attendance
+        user_has_submitted = st.session_state['username'] in st.session_state.planning_data['attendance']
     
-    # User's own attendance form
-    if user_has_submitted:
-        # Show edit button instead of form
-        st.subheader(f"✅ Deine Anwesenheit wurde gespeichert")
-        if st.button("✏️ Anwesenheit bearbeiten"):
-            # Clear the user's data to show form again
-            if 'edit_attendance' not in st.session_state:
-                st.session_state['edit_attendance'] = False
-            st.session_state['edit_attendance'] = not st.session_state.get('edit_attendance', False)
-            st.rerun()
-    
-    # Show form if user hasn't submitted OR is editing
-    if not user_has_submitted or st.session_state.get('edit_attendance', False):
-        st.subheader(f"📝 Deine Anwesenheit, {st.session_state['username']}")
-        
-        with st.form("attendance_form"):
-            st.write("An welchen Tagen bist du dabei?")
-            
-            user_attendance = {}
-            for day in days:
-                st.write(f"**{day['name']}**")
-                
-                # Get existing data
-                existing_days = st.session_state.planning_data['attendance'].get(st.session_state['username'], {}).get('days', {})
-                existing = existing_days.get(day['date'], {})
-                
-                col1, col2, col3, col4 = st.columns(4)
-                
-                # Radio button for present/unsure/none selection
-                with col1:
-                    attendance_status = st.radio(
-                        "Status",
-                        ["Nicht dabei", "Anwesend", "Noch unsicher"],
-                        index=2 if existing.get('unsure') else (1 if existing.get('present') else 0),
-                        key=f"status_{day['date']}",
-                        label_visibility="collapsed",
-                        horizontal=False
-                    )
-                    present = attendance_status == "Anwesend"
-                    unsure = attendance_status == "Noch unsicher"
-                
-                with col2:
-                    # Show status emoji
-                    if present:
-                        st.write("✅")
-                    elif unsure:
-                        st.write("❓")
-                    else:
-                        st.write("❌")
-                
-                with col3:
-                    with_partner = st.checkbox("+ Partner", value=existing.get('with_partner', False), key=f"partner_{day['date']}", disabled=not present)
-                
-                with col4:
-                    overnight = st.checkbox("Übernachtung", value=existing.get('overnight', False), key=f"overnight_{day['date']}", disabled=not present)
-                
-                user_attendance[day['date']] = {
-                    "present": present,
-                    "unsure": unsure,
-                    "with_partner": with_partner if present else False,
-                    "overnight": overnight if present else False
-                }
-            
-            notes = st.text_area("Besondere Hinweise (Allergien, Diät-Wünsche, etc.)", 
-                                 value=st.session_state.planning_data['attendance'].get(st.session_state['username'], {}).get('notes', ''))
-            
-            col_save, col_cancel = st.columns(2)
-            with col_save:
-                submit_button = st.form_submit_button("💾 Speichern")
-            with col_cancel:
-                if user_has_submitted:  # Only show cancel if editing
-                    cancel_button = st.form_submit_button("❌ Abbrechen")
-                    if cancel_button:
-                        st.session_state['edit_attendance'] = False
-                        st.rerun()
-            
-            if submit_button:
-                st.session_state.planning_data['attendance'][st.session_state['username']] = {
-                    "days": user_attendance,
-                    "notes": notes,
-                    "updated_at": datetime.datetime.now().isoformat()
-                }
-                save_planning_data(st.session_state.planning_data)
-                st.session_state['edit_attendance'] = False
-                st.success("✓ Deine Anwesenheit wurde gespeichert!")
+        # User's own attendance form
+        if user_has_submitted:
+            # Show edit button instead of form
+            st.subheader(f"✅ Deine Anwesenheit wurde gespeichert")
+            if st.button("✏️ Anwesenheit bearbeiten"):
+                # Clear the user's data to show form again
+                if 'edit_attendance' not in st.session_state:
+                    st.session_state['edit_attendance'] = False
+                st.session_state['edit_attendance'] = not st.session_state.get('edit_attendance', False)
                 st.rerun()
+    
+        # Show form if user hasn't submitted OR is editing
+        if not user_has_submitted or st.session_state.get('edit_attendance', False):
+            st.subheader(f"📝 Deine Anwesenheit, {st.session_state['username']}")
+        
+            with st.form("attendance_form"):
+                st.write("An welchen Tagen bist du dabei?")
+            
+                user_attendance = {}
+                for day in days:
+                    st.write(f"**{day['name']}**")
+                
+                    # Get existing data
+                    existing_days = st.session_state.planning_data['attendance'].get(st.session_state['username'], {}).get('days', {})
+                    existing = existing_days.get(day['date'], {})
+                
+                    col1, col2, col3, col4 = st.columns(4)
+                
+                    # Radio button for present/unsure/none selection
+                    with col1:
+                        attendance_status = st.radio(
+                            "Status",
+                            ["Nicht dabei", "Anwesend", "Noch unsicher"],
+                            index=2 if existing.get('unsure') else (1 if existing.get('present') else 0),
+                            key=f"status_{day['date']}",
+                            label_visibility="collapsed",
+                            horizontal=False
+                        )
+                        present = attendance_status == "Anwesend"
+                        unsure = attendance_status == "Noch unsicher"
+                
+                    with col2:
+                        # Show status emoji
+                        if present:
+                            st.write("✅")
+                        elif unsure:
+                            st.write("❓")
+                        else:
+                            st.write("❌")
+                
+                    with col3:
+                        with_partner = st.checkbox("+ Partner", value=existing.get('with_partner', False), key=f"partner_{day['date']}", disabled=not present)
+                
+                    with col4:
+                        overnight = st.checkbox("Übernachtung", value=existing.get('overnight', False), key=f"overnight_{day['date']}", disabled=not present)
+                
+                    user_attendance[day['date']] = {
+                        "present": present,
+                        "unsure": unsure,
+                        "with_partner": with_partner if present else False,
+                        "overnight": overnight if present else False
+                    }
+            
+                notes = st.text_area("Besondere Hinweise (Allergien, Diät-Wünsche, etc.)", 
+                                     value=st.session_state.planning_data['attendance'].get(st.session_state['username'], {}).get('notes', ''))
+            
+                col_save, col_cancel = st.columns(2)
+                with col_save:
+                    submit_button = st.form_submit_button("💾 Speichern")
+                with col_cancel:
+                    if user_has_submitted:  # Only show cancel if editing
+                        cancel_button = st.form_submit_button("❌ Abbrechen")
+                        if cancel_button:
+                            st.session_state['edit_attendance'] = False
+                            st.rerun()
+            
+                if submit_button:
+                    st.session_state.planning_data['attendance'][st.session_state['username']] = {
+                        "days": user_attendance,
+                        "notes": notes,
+                        "updated_at": datetime.datetime.now().isoformat()
+                    }
+                    save_planning_data(st.session_state.planning_data)
+                    st.session_state['edit_attendance'] = False
+                    st.success("✓ Deine Anwesenheit wurde gespeichert!")
+                    st.rerun()
     
     st.divider()
     
