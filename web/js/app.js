@@ -95,10 +95,11 @@ function App() {
   }, []);
 
   const loadBasics = async () => {
-    const [profile, all, sets] = await Promise.all([
+    const [profile, all, sets, members] = await Promise.all([
       loadMyProfile(session.user.id),
       supabase.from("profiles").select("*").order("sort_order"),
       supabase.from("app_settings").select("*"),
+      supabase.from("group_members").select("*"),
     ]);
     if (!profile) {
       // Login existiert, ist aber keiner Person zugeordnet (z. B. PIN zurückgesetzt)
@@ -106,7 +107,9 @@ function App() {
       return;
     }
     setMe(profile);
-    setProfiles(all.data || []);
+    // Gruppen (Eltern/Kinder) bekommen ihre Mitglieder mit; ohne Gruppen-Tabelle einfach keine Gruppen
+    const memberRows = members.error ? [] : members.data || [];
+    setProfiles((all.data || []).map((p) => ({ ...p, members: memberRows.filter((m) => m.group_name === p.name).map((m) => m.member) })));
     setSettings(Object.fromEntries((sets.data || []).map((r) => [r.key, r.value])));
   };
 
@@ -123,8 +126,10 @@ function App() {
   if (!session) return html`<${LoginPage} /><${Toast} text=${toastText} />`;
 
   const value = {
-    me, profiles, settings, season, toast, params,
-    people: profiles.filter((p) => !p.is_family_account),
+    me, settings, season, toast, params,
+    profiles: profiles.filter((p) => !p.is_group),                          // Personen + W11
+    groups: profiles.filter((p) => p.is_group),                             // Eltern, Kinder
+    people: profiles.filter((p) => !p.is_family_account && !p.is_group),    // nur echte Personen
     profileByName: Object.fromEntries(profiles.map((p) => [p.name, p])),
     reloadSettings: loadBasics,
   };

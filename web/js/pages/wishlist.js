@@ -290,26 +290,39 @@ function OthersWishes({ data, reload }) {
 // ---------------------------------------------------------------------------
 // Geheime Vorschläge
 // ---------------------------------------------------------------------------
+// Für wen kann ich Ideen machen? Alle außer mir – und Gruppen nur, wenn ich nicht dazugehöre
+function suggestionTargets(me, profiles, groups) {
+  return [
+    ...profiles.filter((p) => p.name !== me.name),
+    ...groups.filter((g) => !g.members.includes(me.name)),
+  ];
+}
+
+function targetLabel(name, profileByName) {
+  const p = profileByName[name];
+  return p?.is_group && p.members?.length ? `${name} (${p.members.join(", ")})` : name;
+}
+
 function Suggestions({ data, reload }) {
-  const { me, profiles } = useApp();
+  const { me, profiles, groups, profileByName } = useApp();
   const [editing, setEditing] = useState(null);
   const purchaseOf = (id) => data.purchases.find((p) => p.item_id === id);
   const grouped = groupBy(data.suggestions, "suggested_for");
-  const order = profiles.map((p) => p.name).filter((n) => grouped.has(n));
+  const order = [...profiles, ...groups].map((p) => p.name).filter((n) => grouped.has(n));
   const del = useAction();
 
   const edit = (s) => { setEditing(s); window.scrollTo({ top: 0, behavior: "smooth" }); };
   const done = () => { setEditing(null); reload(); };
 
   return html`
-    <p class="muted" style="margin:0 0 .75rem">🤫 Ideen sind für alle sichtbar – nur nicht für die Person, für die sie gedacht sind.</p>
+    <p class="muted" style="margin:0 0 .75rem">🤫 Ideen sind für alle sichtbar – nur nicht für die Person (bzw. die Eltern oder Kinder), für die sie gedacht sind.</p>
     <${Collapsible} open=${editing !== null} onOpen=${() => setEditing("new")} buttonLabel="💡 Idee vorschlagen">
       <${SuggestionForm} key=${editing?.id || "new"} suggestion=${editing === "new" ? null : editing}
         onDone=${done} onCancel=${() => setEditing(null)} />
     <//>
     ${order.length === 0 && html`<div class="section"><${Empty}>Noch keine Ideen.<//></div>`}
     ${order.map((person) => html`
-      <${PersonHeading} name=${person}>Für ${person}<//>
+      <${PersonHeading} name=${person}>Für ${targetLabel(person, profileByName)}<//>
       <div class="card list">${grouped.get(person).map((s) => html`<${GiftItem} key=${s.id} item=${s}
           extra=${html`<span class="muted">von ${s.suggested_by === me.name ? "dir" : s.suggested_by}</span>`}>
         <${ClaimControls} item=${s} kind="suggestion" purchase=${purchaseOf(s.id)} reload=${reload} />
@@ -323,9 +336,9 @@ function Suggestions({ data, reload }) {
 }
 
 function SuggestionForm({ suggestion, onDone, onCancel }) {
-  const { me, season, profiles } = useApp();
+  const { me, season, profiles, groups, profileByName } = useApp();
   const editing = Boolean(suggestion);
-  const targets = profiles.filter((p) => p.name !== me.name);
+  const targets = suggestionTargets(me, profiles, groups);
   const [target, setTarget] = useState(suggestion?.suggested_for || targets[0]?.name || "");
   const [name, setName] = useState(suggestion?.name || "");
   const [description, setDescription] = useState(suggestion?.description || "");
@@ -356,7 +369,7 @@ function SuggestionForm({ suggestion, onDone, onCancel }) {
     <form class="card form" novalidate onSubmit=${submit}>
       <${FormHeader} title=${editing ? "Idee bearbeiten" : "Neue geheime Idee"} onClose=${onCancel} />
       <select class="chip-select" value=${target} onChange=${(e) => setTarget(e.target.value)} aria-label="Für wen?">
-        ${targets.map((p) => html`<option value=${p.name}>Für ${p.name}</option>`)}
+        ${targets.map((p) => html`<option value=${p.name}>Für ${targetLabel(p.name, profileByName)}</option>`)}
       </select>
       <input type="text" maxlength="200" placeholder="Geschenkidee" aria-label="Geschenkidee"
              value=${name} onInput=${(e) => setName(e.target.value)} />

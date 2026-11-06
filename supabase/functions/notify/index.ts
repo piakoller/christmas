@@ -113,9 +113,11 @@ async function buildMessage(admin: any, caller: string, kind: string, id: string
   if (kind === "suggestion") {
     const { data: s } = await admin.from("suggestions").select("suggested_by, suggested_for").eq("id", id).maybeSingle();
     if (!s || s.suggested_by !== caller) return { error: "Nicht gefunden" };
-    const { data: people } = await admin.from("profiles").select("name").eq("is_family_account", false);
-    const recipients = (people ?? []).map((p: { name: string }) => p.name)
-      .filter((n: string) => n !== s.suggested_for && n !== s.suggested_by);
+    const { data: people } = await admin.from("profiles").select("name").eq("is_family_account", false).eq("is_group", false);
+    // Ist die Idee für eine Gruppe (Eltern/Kinder), erfährt kein Mitglied davon
+    const { data: members } = await admin.from("group_members").select("member").eq("group_name", s.suggested_for);
+    const excluded = new Set([s.suggested_for, s.suggested_by, ...(members ?? []).map((m: { member: string }) => m.member)]);
+    const recipients = (people ?? []).map((p: { name: string }) => p.name).filter((n: string) => !excluded.has(n));
     return {
       recipients, pref: "suggestion", tag: `suggestion-${id}`,
       title: "🤫 Neue geheime Geschenkidee",
