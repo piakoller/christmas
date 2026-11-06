@@ -247,6 +247,8 @@ details.box[open] > summary { margin-bottom: .75rem; }
   border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted);
 }
 .chip.on { background: var(--ok-bg); border-color: #B8D9C2; color: var(--ok); }
+.chip.emoji-chip { font-size: 1.15rem; padding: .2rem .55rem; }
+input[type=date] { width: 100%; font: inherit; padding: .6rem .75rem; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-2); color: var(--text); min-height: 2.6rem; }
 
 .segmented.four { grid-template-columns: repeat(4, 1fr); }
 .segmented.four button { font-size: .82rem; padding: .5rem .15rem; }

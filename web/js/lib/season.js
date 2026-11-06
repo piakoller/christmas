@@ -32,6 +32,12 @@ export function christmasDays(season) {
   });
 }
 
+// "2026-12-19" -> "Sa 19.12."
+export function shortDate(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return `${WEEKDAYS_SHORT[new Date(y, m - 1, d).getDay()]} ${d}.${m}.`;
+}
+
 function startOfDay(d) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
