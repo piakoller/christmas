@@ -4,8 +4,13 @@
 # Streamlit secrets (NEVER commit these!)
 .streamlit/secrets.toml
 
-# Firebase service account credentials
+# Firebase exports / old credentials (may contain personal data)
 *firebase-adminsdk*.json
+firebase-export*.json
+
+# Local fallback data files
+wunschliste_*.json
+planning_*.json
 
 # Backup files
 wunschliste_backup.json
@@ -158,7 +163,9 @@ cython_debug/
 # Created by https://www.toptal.com/developers/gitignore/api/streamlit
 # Edit at https://www.toptal.com/developers/gitignore?templates=streamlit
 
-# Streamlit-specific cache and configuration files
-.streamlit
+# Streamlit-specific cache and local files (theme config is versioned)
+.streamlit/*
+!.streamlit/config.toml
+!.streamlit/secrets.toml.example
 
 # End of https://www.toptal.com/developers/gitignore/api/python,streamlit

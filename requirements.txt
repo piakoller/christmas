@@ -1,4 +1,4 @@
 streamlit
 pillow
 pandas
-firebase-admin
+supabase

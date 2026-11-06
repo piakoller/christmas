@@ -13,23 +13,198 @@ from typing import List, Dict, Any, Optional
 from io import BytesIO
 from PIL import Image
 
-# Firebase imports (optional, only used if configured)
+# Supabase (optional: without credentials the app falls back to local JSON files)
 try:
-    import firebase_admin  # type: ignore
-    from firebase_admin import credentials, db  # type: ignore
-    FIREBASE_AVAILABLE = True
+    from supabase import create_client  # type: ignore
+    SUPABASE_AVAILABLE = True
 except ImportError:
-    FIREBASE_AVAILABLE = False
+    SUPABASE_AVAILABLE = False
 
 # --- Configuration ---
-USER_CREDENTIALS = {
-    "Dieter": "dieter123", "Gudrun": "gudrun123", "Lukas": "lukas123",
-    "Pia": "pia123", "Emmy": "emmy123", "Tim": "tim123"
-}
-ALL_USERS = list(USER_CREDENTIALS.keys())
+ALL_USERS = ["Dieter", "Gudrun", "Lukas", "Pia", "Emmy", "Tim"]
+
+
+def _load_user_credentials() -> Dict[str, str]:
+    """Passwords live in the secrets (section `[passwords]`), never in the code."""
+    try:
+        passwords = st.secrets.get("passwords") or {}
+    except Exception:
+        passwords = {}
+    return {user: str(pw) for user, pw in dict(passwords).items() if user in ALL_USERS and pw}
+
+
+USER_CREDENTIALS = _load_user_credentials()
 SUPER_USERS = ["Dieter", "Gudrun"]
-DATA_FILE = Path("wunschliste.json")
 BUDGET_LIMIT = 1500.0  # Budget limit per user in euros
+
+
+def _current_season_year() -> int:
+    """The Christmas season the app is planning for.
+    In January the previous season is still shown; from February on the new one starts.
+    """
+    today = datetime.date.today()
+    return today.year - 1 if today.month == 1 else today.year
+
+
+SEASON_YEAR = _current_season_year()
+# Each season gets its own rows in Supabase (table `app_data`, keyed by season + key),
+# so previous years stay archived untouched.
+SUPABASE_TABLE = "app_data"
+DATA_FILE = Path(f"wunschliste_{SEASON_YEAR}.json")
+PLANNING_FILE = Path(f"planning_{SEASON_YEAR}.json")
+
+GERMAN_WEEKDAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+CHRISTMAS_DAY_LABELS = {
+    23: ("23. Dezember", "🎄"),
+    24: ("Heiligabend (24.12.)", "🎄"),
+    25: ("1. Weihnachtstag (25.12.)", "🎅"),
+    26: ("2. Weihnachtstag (26.12.)", "🎁"),
+}
+
+
+def get_christmas_days() -> List[Dict[str, str]]:
+    """Days that are planned (meals, attendance) for the current season, with weekday."""
+    days = []
+    for day, (label, emoji) in CHRISTMAS_DAY_LABELS.items():
+        date = datetime.date(SEASON_YEAR, 12, day)
+        days.append({
+            "date": date.isoformat(),
+            "name": f"{label}, {GERMAN_WEEKDAYS[date.weekday()]}",
+            "emoji": emoji,
+        })
+    return days
+
+
+# --- UI: pages, global styles, navigation ---
+PAGES = {
+    "dashboard": ("🏠", "Übersicht"),
+    "countdown": ("⏰", "Countdown"),
+    "wishlist": ("🎁", "Wunschliste"),
+    "meals": ("🍽️", "Essensplanung"),
+    "attendance": ("📅", "Wer kommt wann?"),
+    "advent": ("🌟", "Adventskalender"),
+}
+
+
+def _advent_calendar_enabled() -> bool:
+    """The advent calendar is off by default (photos for this year are not picked yet).
+    Switch it on without a code change via the secrets:  [features]  advent_calendar = true
+    """
+    try:
+        return bool((st.secrets.get("features") or {}).get("advent_calendar", False))
+    except Exception:
+        return False
+
+
+if not _advent_calendar_enabled():
+    del PAGES["advent"]  # hides it from sidebar, dashboard and direct links (?page=advent)
+
+GLOBAL_CSS = """
+<style>
+/* Layout */
+.block-container { padding-top: 2.2rem; padding-bottom: 4rem; max-width: 1200px; }
+h1, h2, h3 { letter-spacing: -0.01em; color: #1E3A2B; }
+h1 { font-weight: 800; }
+
+/* Cards: bordered containers */
+[data-testid="stVerticalBlockBorderWrapper"] { background: #FFFFFF; }
+[data-testid="stExpander"] details { background: #FFFFFF; border-radius: 0.75rem; }
+
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] { gap: 0.25rem; flex-wrap: wrap; }
+.stTabs [data-baseweb="tab"] {
+    background: #F3EEE4; border-radius: 999px; padding: 0.35rem 1rem; height: auto;
+}
+.stTabs [aria-selected="true"] { background: #1E3A2B; color: #FFFFFF !important; }
+.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display: none; }
+
+/* Metrics */
+[data-testid="stMetric"] {
+    background: #FFFFFF; border: 1px solid #E6DDCC; border-radius: 0.75rem; padding: 0.75rem 1rem;
+}
+
+/* Sidebar */
+[data-testid="stSidebar"] .stButton button {
+    justify-content: flex-start; border: none; font-weight: 600;
+}
+[data-testid="stSidebar"] .stButton button > div { justify-content: flex-start; width: 100%; }
+[data-testid="stSidebar"] .stButton button p { font-size: 1rem; text-align: left; }
+[data-testid="stSidebar"] .stButton button[kind="secondary"] { background: transparent; }
+[data-testid="stSidebar"] .stButton button[kind="secondary"]:hover { background: #2A4A38; }
+
+/* Hero banner */
+.hero {
+    background: radial-gradient(circle at 85% 20%, rgba(255,214,102,.25), transparent 40%),
+                linear-gradient(135deg, #1E3A2B 0%, #2F5D45 100%);
+    color: #F6F1E7; border-radius: 1.25rem; padding: 2rem 2.25rem; margin-bottom: 1.5rem;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1.5rem;
+}
+.hero h1 { color: #FFFFFF; margin: 0; padding: 0; font-size: 2.2rem; }
+.hero p { margin: .35rem 0 0 0; opacity: .85; font-size: 1.05rem; }
+.hero .count { text-align: center; background: rgba(255,255,255,.1); border-radius: 1rem; padding: .75rem 1.5rem; }
+.hero .count .num { font-size: 3.2rem; font-weight: 800; line-height: 1; color: #FFD666; }
+.hero .count .lbl { font-size: .95rem; opacity: .9; }
+
+/* Dashboard tiles */
+.tile-head { display: flex; align-items: center; gap: .9rem; margin-bottom: .5rem; }
+.tile-icon {
+    width: 3rem; height: 3rem; border-radius: .9rem; display: flex; align-items: center;
+    justify-content: center; font-size: 1.6rem; flex-shrink: 0;
+}
+.tile-title { font-size: 1.2rem; font-weight: 700; color: #1E3A2B; }
+.tile-stat { color: #5B6660; font-size: .95rem; min-height: 3rem; }
+
+/* Mobile */
+@media (max-width: 640px) {
+    .block-container { padding-left: 1rem; padding-right: 1rem; padding-top: 1rem; }
+    .hero { padding: 1.4rem; }
+    .hero h1 { font-size: 1.6rem; }
+    .hero .count .num { font-size: 2.4rem; }
+}
+</style>
+"""
+
+
+def apply_global_styles():
+    st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
+
+
+def logout():
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.query_params.clear()
+    st.rerun()
+
+
+def render_sidebar(current_page: str):
+    """Sidebar navigation shared by all pages."""
+    with st.sidebar:
+        st.markdown(f"## 🎄 Weihnachten {SEASON_YEAR}")
+        st.caption(f"Angemeldet als **{st.session_state['username']}**")
+        if not _get_supabase_client():
+            st.warning("Lokaler Modus: Supabase ist nicht eingerichtet, Daten landen nur in lokalen Dateien.")
+        for key, (icon, label) in PAGES.items():
+            if st.button(f"{icon}  {label}", key=f"nav_{key}", width="stretch",
+                         type="primary" if key == current_page else "secondary"):
+                navigate_to(key)
+        st.divider()
+        if st.button("🚪  Abmelden", key="nav_logout", width="stretch"):
+            logout()
+
+
+def back_to_dashboard():
+    """Small back link at the top of each sub page (handy on phones where the sidebar is collapsed)."""
+    if st.button("← Zur Übersicht", type="tertiary"):
+        navigate_to('dashboard')
+
+
+def days_until_christmas_eve() -> int:
+    today = datetime.date.today()
+    christmas = datetime.date(today.year, 12, 24)
+    if today > christmas:
+        christmas = datetime.date(today.year + 1, 12, 24)
+    return (christmas - today).days
+
 
 # --- Helper Functions ---
 def navigate_to(page: str):
@@ -38,59 +213,55 @@ def navigate_to(page: str):
     st.query_params['page'] = page
     st.rerun()
 
-# --- Data Persistence (Firebase Realtime Database preferred, fallback to local JSON) ---
+# --- Data Persistence (Supabase preferred, fallback to local JSON) ---
 
-def _init_firebase_from_secrets() -> Optional[Any]:
-    """Initialize Firebase Realtime Database using service account provided in Streamlit secrets.
-    Returns a database reference or None on failure.
-    The service account JSON should be stored in Streamlit secrets as `firebase` (a dict).
+@st.cache_resource(show_spinner=False)
+def _get_supabase_client() -> Optional[Any]:
+    """Create the Supabase client from Streamlit secrets (section `[supabase]` with `url` and `key`).
+    Returns None when Supabase is not configured, so the app uses local files instead.
     """
-    if not FIREBASE_AVAILABLE:
+    if not SUPABASE_AVAILABLE:
         return None
-    
     try:
-        if not st.secrets.get("firebase"):
-            return None
-        if 'firebase_db' in st.session_state:
-            return st.session_state['firebase_db']
-        
-        cred = credentials.Certificate(dict(st.secrets["firebase"]))
-        # Avoid re-initializing the app
-        try:
-            firebase_admin.get_app()
-        except Exception:
-            firebase_admin.initialize_app(cred, {
-                'databaseURL': f'https://{st.secrets["firebase"]["project_id"]}-default-rtdb.firebaseio.com'
-            })
-        database = db.reference('/')
-        st.session_state['firebase_db'] = database
-        return database
-    except Exception as e:
-        # Show error for debugging but don't crash
-        st.sidebar.warning(f"Firebase connection failed: {str(e)}")
+        cfg = st.secrets.get("supabase")
+    except Exception:
         return None
+    if not cfg or not cfg.get("url") or not cfg.get("key"):
+        return None
+    return create_client(cfg["url"], cfg["key"])
+
+
+def _supabase_load(key: str) -> Any:
+    """Load one JSON document of the current season. Raises on connection errors."""
+    client = _get_supabase_client()
+    result = (client.table(SUPABASE_TABLE).select("data")
+              .eq("season", SEASON_YEAR).eq("key", key).limit(1).execute())
+    return result.data[0]["data"] if result.data else None
+
+
+def _supabase_save(key: str, data: Any) -> None:
+    """Insert or replace one JSON document of the current season."""
+    client = _get_supabase_client()
+    client.table(SUPABASE_TABLE).upsert({
+        "season": SEASON_YEAR,
+        "key": key,
+        "data": data,
+        "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }).execute()
 
 
 def load_data() -> List[Dict[str, Any]]:
-    """Load wishlist data. Prefer Firebase Realtime Database when configured, otherwise use local JSON file."""
-    # Try Firebase Realtime Database
-    db_ref = _init_firebase_from_secrets()
-    if db_ref:
+    """Load wishlist data. Prefer Supabase when configured, otherwise use the local JSON file."""
+    if _get_supabase_client():
         try:
-            wishes_ref = db_ref.child('wishes')
-            data = wishes_ref.get()
-            if data:
-                # Firebase returns a dict, convert to list
-                if isinstance(data, dict):
-                    return list(data.values())
-                return data if isinstance(data, list) else []
-            return []
+            data = _supabase_load("wishes")
+            if isinstance(data, dict):  # older format: dict keyed by wish id
+                return list(data.values())
+            return data if isinstance(data, list) else []
         except Exception as e:
-            # fall back to local file
-            st.sidebar.warning(f"Firebase read failed: {str(e)}")
-            pass
+            st.warning(f"Wunschliste konnte nicht aus Supabase geladen werden: {e}")
+            return []
 
-    # Fallback: local JSON file
     if not DATA_FILE.exists():
         return []
     try:
@@ -102,26 +273,14 @@ def load_data() -> List[Dict[str, Any]]:
 
 
 def save_data(data: List[Dict[str, Any]]):
-    """Save wishlist data to Firebase Realtime Database when configured, otherwise to local JSON."""
-    # Try Firebase Realtime Database
-    db_ref = _init_firebase_from_secrets()
-    if db_ref:
+    """Save wishlist data to Supabase when configured, otherwise to the local JSON file."""
+    if _get_supabase_client():
         try:
-            wishes_ref = db_ref.child('wishes')
-            # Convert list to dict with IDs as keys for better Firebase structure
-            data_dict = {}
-            for item in data:
-                item_id = item.get('id', str(uuid.uuid4()))
-                data_dict[item_id] = item
-            # Set the entire wishes node
-            wishes_ref.set(data_dict)
-            return
+            _supabase_save("wishes", data)
         except Exception as e:
-            # fall back to local file
-            st.sidebar.warning(f"Firebase write failed: {str(e)}")
-            pass
+            st.error(f"Speichern in Supabase fehlgeschlagen: {e}")
+        return
 
-    # Fallback: write to local JSON file
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
@@ -201,75 +360,66 @@ def migrate_meal_data(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def load_planning_data() -> Dict[str, Any]:
-    """Load planning data (meals, attendance) from Firebase or local file."""
-    data_migrated = False
-    db_ref = _init_firebase_from_secrets()
-    if db_ref:
+    """Load planning data (meals, attendance, advent calendar) from Supabase or the local file."""
+    data = None
+    if _get_supabase_client():
         try:
-            planning_ref = db_ref.child('planning')
-            data = planning_ref.get()
-            if data:
-                # Migrate old data structure if needed
-                old_data = data.copy()
-                data = migrate_meal_data(data)
-                # Check if migration happened
-                if 'meal_proposals' in data and 'meal_proposals' not in old_data:
-                    data_migrated = True
-                if data_migrated:
-                    # Save migrated data back to Firebase
-                    planning_ref.set(data)
-                return data
-            return {"meals": {}, "attendance": {}}
+            data = _supabase_load("planning")
         except Exception as e:
-            st.sidebar.warning(f"Firebase planning read failed: {str(e)}")
-    
-    # Fallback: local JSON
-    planning_file = Path("planning.json")
-    if planning_file.exists():
+            st.warning(f"Planung konnte nicht aus Supabase geladen werden: {e}")
+    elif PLANNING_FILE.exists():
         try:
-            with open(planning_file, "r", encoding="utf-8") as f:
+            with open(PLANNING_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                # Migrate old data structure if needed
-                old_data = data.copy()
-                data = migrate_meal_data(data)
-                # Check if migration happened
-                if 'meal_proposals' in data and 'meal_proposals' not in old_data:
-                    data_migrated = True
-                if data_migrated:
-                    # Save migrated data back to file
-                    with open(planning_file, "w", encoding="utf-8") as fw:
-                        json.dump(data, fw, indent=4, ensure_ascii=False)
-                return data
         except (json.JSONDecodeError, FileNotFoundError):
-            pass
-    return {"meals": {}, "attendance": {}}
+            data = None
+
+    if not data:
+        return {"meals": {}, "attendance": {}}
+
+    # Migrate old meal structure if needed and store the migrated version
+    had_proposals = 'meal_proposals' in data
+    data = migrate_meal_data(data)
+    if 'meal_proposals' in data and not had_proposals:
+        save_planning_data(data)
+    return data
 
 
 def save_planning_data(data: Dict[str, Any]):
-    """Save planning data to Firebase or local file."""
-    db_ref = _init_firebase_from_secrets()
-    if db_ref:
+    """Save planning data to Supabase when configured, otherwise to the local file."""
+    if _get_supabase_client():
         try:
-            planning_ref = db_ref.child('planning')
-            planning_ref.set(data)
-            return
+            _supabase_save("planning", data)
         except Exception as e:
-            st.sidebar.warning(f"Firebase planning write failed: {str(e)}")
-    
-    # Fallback: local JSON
-    with open("planning.json", "w", encoding="utf-8") as f:
+            st.error(f"Speichern in Supabase fehlgeschlagen: {e}")
+        return
+
+    with open(PLANNING_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
+
 
 # --- Main App Logic ---
 def login_page():
     """Displays the login page and handles authentication."""
-    st.set_page_config(page_title="Wunschliste Login", layout="centered")
-    st.title("🎄 Weihnachts-Wunschliste Login 🎄")
-    
-    with st.form("login_form"):
+    st.set_page_config(page_title=f"Weihnachten {SEASON_YEAR}", page_icon="🎄", layout="centered")
+    apply_global_styles()
+    days = days_until_christmas_eve()
+    st.markdown(f"""
+    <div class="hero" style="justify-content:center; text-align:center; flex-direction:column; gap:.5rem;">
+        <div style="font-size:3rem; line-height:1;">🎄</div>
+        <h1>Weihnachten {SEASON_YEAR}</h1>
+        <p>Wunschliste, Essensplanung &amp; mehr für die ganze Familie</p>
+        <p style="color:#FFD666; font-weight:700;">Noch {days} {'Tag' if days == 1 else 'Tage'} bis Heiligabend</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if not USER_CREDENTIALS:
+        st.error("Es sind keine Passwörter eingerichtet. Bitte den Abschnitt `[passwords]` in den Secrets ergänzen.")
+
+    with st.form("login_form", border=True):
         username = st.selectbox("Wer bist du?", ALL_USERS)
         password = st.text_input("Passwort", type="password")
-        submitted = st.form_submit_button("Anmelden")
+        submitted = st.form_submit_button("Anmelden", type="primary", width="stretch")
 
         if submitted:
             if USER_CREDENTIALS.get(username) == password:
@@ -279,9 +429,11 @@ def login_page():
             else:
                 st.error("Falsches Passwort!")
 
+
 def main_app():
     """The main application interface after successful login."""
-    st.set_page_config(page_title="Weihnachts-Wunschliste", layout="wide")
+    st.set_page_config(page_title=f"Weihnachten {SEASON_YEAR}", page_icon="🎄", layout="wide")
+    apply_global_styles()
     
     # Load data into session state if not already present
     if 'data' not in st.session_state:
@@ -308,6 +460,10 @@ def main_app():
         # URL changed (browser back/forward) - update session state
         st.session_state['current_page'] = url_page
     
+    if st.session_state['current_page'] not in PAGES:
+        st.session_state['current_page'] = 'dashboard'
+    render_sidebar(st.session_state['current_page'])
+
     # Route to appropriate page
     if st.session_state['current_page'] == 'dashboard':
         dashboard_page()
@@ -324,172 +480,92 @@ def main_app():
 
 
 def dashboard_page():
-    """Display the main dashboard with tile navigation."""
-    
-    # Custom CSS for beautiful cards
-    st.markdown("""
-    <style>
-    /* Page background with subtle pattern */
-    .main .block-container {
-        background: linear-gradient(135deg, #f5f7fa 0%, #e8f5e9 100%) !important;
-        padding: 2rem !important;
-    }
-    
-    /* Card styling */
-    .tile-card {
-        background: white;
-        border-radius: 15px;
-        padding: 30px;
-        text-align: center;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        margin: 10px 0;
-        min-height: 200px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-    }
-    
-    .tile-card h2 {
-        font-size: 3em;
-        margin: 10px 0;
-    }
-    
-    .tile-card p {
-        font-size: 1.2em;
-        color: #666;
-        margin: 10px 0;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # Styled welcome header
-    st.markdown(f"""
-        <h1 style='text-align: center; 
-                   color: #2E7D32; 
-                   font-size: 3em;
-                   text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
-                   margin-bottom: 30px;'>
-            🎄 Willkommen, {st.session_state['username']}! 🎄
-        </h1>
-    """, unsafe_allow_html=True)
-    
-    # Calculate Christmas countdown
+    """Overview with countdown and one tile per area."""
+    user = st.session_state['username']
+    days = days_until_christmas_eve()
     today = datetime.date.today()
-    christmas = datetime.date(today.year, 12, 24)
-    if today > christmas:
-        christmas = datetime.date(today.year + 1, 12, 24)
-    days_until_christmas = (christmas - today).days
-    
-    # First row: Christmas Countdown (large centered card)
-    col_spacer1, col_countdown, col_spacer2 = st.columns([1, 2, 1])
-    with col_countdown:
-        st.markdown(f"""
-        <div class="tile-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; min-height: 300px;">
-            <h2 style="font-size: 4em; color: white;">🎅</h2>
-            <h1 style="font-size: 5em; margin: 20px 0; color: white;">{days_until_christmas}</h1>
-            <p style="font-size: 1.5em; color: white;">{'Tage bis Heiligabend!' if days_until_christmas != 1 else 'Tag bis Heiligabend!'}</p>
+
+    st.markdown(f"""
+    <div class="hero">
+        <div>
+            <h1>Hallo {user}! 👋</h1>
+            <p>Schön, dass du da bist. Hier planen wir zusammen Weihnachten {SEASON_YEAR}.</p>
         </div>
-        """, unsafe_allow_html=True)
-        if st.button("🎄 Zum Countdown", key="countdown_btn", use_container_width=True):
-            navigate_to('countdown')
-            st.rerun()
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Second row: 4 tiles
-    col1, col2, col3, col4 = st.columns(4)
-    
-    # Tile 1: Wunschliste
-    with col1:
-        st.markdown("""
-        <div class="tile-card" style="background: linear-gradient(135deg, #D22B2B 0%, #FF6B9D 100%); color: white;">
-            <h2 style="color: white;">🎁</h2>
-            <p style="font-size: 1.3em; font-weight: bold; color: white;">Wunschliste</p>
+        <div class="count">
+            <div class="num">{days}</div>
+            <div class="lbl">{'Tag' if days == 1 else 'Tage'} bis Heiligabend</div>
         </div>
-        """, unsafe_allow_html=True)
-        if st.button("📝 Zur Wunschliste", key="wishlist_btn", use_container_width=True):
-            navigate_to('wishlist')
-            st.rerun()
-    
-    # Tile 2: Essensplanung
-    with col2:
-        st.markdown("""
-        <div class="tile-card" style="background: linear-gradient(135deg, #2E7D32 0%, #66BB6A 100%); color: white;">
-            <h2 style="color: white;">🍽️</h2>
-            <p style="font-size: 1.3em; font-weight: bold; color: white;">Essensplanung</p>
-        </div>
-        """, unsafe_allow_html=True)
-        if st.button("🍴 Zur Essensplanung", key="meals_btn", use_container_width=True):
-            navigate_to('meals')
-            st.rerun()
-    
-    # Tile 3: Wer kommt wann?
-    with col3:
-        st.markdown("""
-        <div class="tile-card" style="background: linear-gradient(135deg, #1565C0 0%, #42A5F5 100%); color: white;">
-            <h2 style="color: white;">📅</h2>
-            <p style="font-size: 1.3em; font-weight: bold; color: white;">Wer kommt wann?</p>
-        </div>
-        """, unsafe_allow_html=True)
-        if st.button("👥 Zur Anwesenheit", key="attendance_btn", use_container_width=True):
-            navigate_to('attendance')
-            st.rerun()
-    
-    # Tile 4: Adventskalender
-    with col4:
-        st.markdown("""
-        <div class="tile-card" style="background: linear-gradient(135deg, #F57C00 0%, #FFB74D 100%); color: white;">
-            <h2 style="color: white;">🎄</h2>
-            <p style="font-size: 1.3em; font-weight: bold; color: white;">Adventskalender</p>
-        </div>
-        """, unsafe_allow_html=True)
-        if st.button("🎅 Zum Kalender", key="advent_btn", use_container_width=True):
-            navigate_to('advent')
-            st.rerun()
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Small status line per tile
+    data = st.session_state['data']
+    planning = st.session_state['planning_data']
+    my_wishes = [w for w in data if w.get("owner_user") == user and w.get("type") != "suggestion"]
+    my_open_tasks = [w for w in data if w.get("claimed_by") == user and not w.get("purchased")]
+    proposals = planning.get('meal_proposals', []) or []
+    attendance = planning.get('attendance', {}) or {}
+    if today.month == 12 and today.day <= 24:
+        advent_stat = f"Heute ist Türchen {today.day} dran"
+    elif today.month == 12:
+        advent_stat = "Alle 24 Türchen sind offen"
+    else:
+        advent_stat = f"Startet in {(datetime.date(today.year, 12, 1) - today).days} Tagen"
+
+    tiles = [
+        ("wishlist", "#FCE8E6", f"{len(my_wishes)} eigene Wünsche · {len(my_open_tasks)} offene Besorgungen"),
+        ("meals", "#E6F2EA", f"{len(proposals)} Gerichte vorgeschlagen"),
+        ("attendance", "#E7EEF8", f"{len(attendance)} von {len(ALL_USERS)} haben sich eingetragen"),
+        ("advent", "#FFF4D6", advent_stat),
+    ]
+    tiles = [t for t in tiles if t[0] in PAGES]
+    per_row = 3 if len(tiles) == 3 else 2
+    for start in range(0, len(tiles), per_row):
+        row = tiles[start:start + per_row]
+        cols = st.columns(per_row, gap="medium")
+        for col, (page, tint, stat) in zip(cols, row):
+            icon, label = PAGES[page]
+            with col, st.container(border=True, key=f"tile_{page}"):
+                st.markdown(f"""
+                <div class="tile-head">
+                    <div class="tile-icon" style="background:{tint};">{icon}</div>
+                    <div class="tile-title">{label}</div>
+                </div>
+                <div class="tile-stat">{stat}</div>
+                """, unsafe_allow_html=True)
+                if st.button("Öffnen →", key=f"open_{page}", width="stretch"):
+                    navigate_to(page)
 
 
 def countdown_page():
     """Display detailed Christmas countdown page."""
-    if st.button("⬅️ Zurück zur Übersicht"):
-        navigate_to('dashboard')
-        st.rerun()
+    back_to_dashboard()
     
-    st.title("� Countdown bis Heiligabend 🎄")
-    
-    today = datetime.date.today()
-    christmas = datetime.date(today.year, 12, 24)
-    if today > christmas:
-        christmas = datetime.date(today.year + 1, 12, 24)
-    days_until_christmas = (christmas - today).days
-    
+    now = datetime.datetime.now()
+    christmas_eve = datetime.datetime(now.year, 12, 24)
+    if now.date() > christmas_eve.date():
+        christmas_eve = datetime.datetime(now.year + 1, 12, 24)
+    remaining = max(christmas_eve - now, datetime.timedelta(0))
+    days_left = days_until_christmas_eve()
+    weekday = GERMAN_WEEKDAYS[christmas_eve.weekday()]
+
     st.markdown(f"""
-    <div style='text-align: center; padding: 60px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                border-radius: 15px; margin: 30px 0;'>
-        <h1 style='color: white; font-size: 6em; margin: 0;'>🎅 {days_until_christmas} 🎄</h1>
-        <h2 style='color: white; margin: 20px 0 0 0; font-size: 2em;'>
-            {'Tage bis Heiligabend!' if days_until_christmas != 1 else 'Tag bis Heiligabend!'}
-        </h2>
-        <p style='color: white; margin-top: 20px; font-size: 1.2em;'>
-            {christmas.strftime('%A, %d. %B %Y')}
-        </p>
+    <div class="hero" style="flex-direction:column; text-align:center; padding:3rem 2rem;">
+        <div style="font-size:3rem; line-height:1;">🎅</div>
+        <div class="count" style="background:none; padding:0;">
+            <div class="num" style="font-size:5.5rem;">{days_left}</div>
+            <div class="lbl" style="font-size:1.4rem;">{'Tag' if days_left == 1 else 'Tage'} bis Heiligabend</div>
+        </div>
+        <p>{weekday}, 24. Dezember {christmas_eve.year}</p>
     </div>
     """, unsafe_allow_html=True)
-    
-    # Additional countdown information
+
+    total_seconds = int(remaining.total_seconds())
     col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        hours_until = days_until_christmas * 24
-        st.metric("Stunden", f"{hours_until:,}")
-    
-    with col2:
-        minutes_until = days_until_christmas * 24 * 60
-        st.metric("Minuten", f"{minutes_until:,}")
-    
-    with col3:
-        seconds_until = days_until_christmas * 24 * 60 * 60
-        st.metric("Sekunden", f"{seconds_until:,}")
-    
+    col1.metric("Wochen", f"{days_left / 7:.1f}".replace(".", ","))
+    col2.metric("Stunden", f"{total_seconds // 3600:,}".replace(",", "'"))
+    col3.metric("Minuten", f"{total_seconds // 60:,}".replace(",", "'"))
+
     st.markdown("---")
     st.markdown("### 🎄 Die schönste Zeit des Jahres steht bevor!")
     st.write("Nutze die Wunschliste, um deine Geschenkwünsche zu teilen und die Planung für die Feiertage zu koordinieren.")
@@ -498,17 +574,16 @@ def countdown_page():
 def wishlist_page():
     """Display the wishlist page."""
     
-    if st.button("⬅️ Zurück zur Übersicht"):
-        navigate_to('dashboard')
-        st.rerun()
+    back_to_dashboard()
     
     st.title("🎁 Wunschliste")
 
-    # Define columns for layout
-    col1, col2 = st.columns(2)
+    tab_mine, tab_others, tab_suggestions, tab_shopping = st.tabs([
+        "🎁 Meine Wünsche", "🎄 Wünsche der Anderen", "💡 Geheime Vorschläge", "🛒 Besorgungen & Ausgaben"
+    ])
 
-    # --- Column 1: My Wishes & My Gifts ---
-    with col1:
+    # --- Tab: My Wishes ---
+    with tab_mine:
         # --- Add/Edit Wish Form ---
         with st.expander("📝 Wunsch hinzufügen / Bearbeiten", expanded=True):
             
@@ -793,6 +868,8 @@ def wishlist_page():
                         save_data(st.session_state['data'])
                         st.rerun()
 
+    # --- Tab: Shopping (my claimed items) ---
+    with tab_shopping:
         # --- Display My Claimed Items ---
         st.header("📋 Meine Besorgungen")
         my_claimed = [w for w in st.session_state['data'] if w.get("claimed_by") == st.session_state['username']]
@@ -830,8 +907,8 @@ def wishlist_page():
                             save_data(st.session_state['data'])
                             st.rerun()
 
-    # --- Column 2: Others' Wishlists ---
-    with col2:
+    # --- Tab: Others' Wishlists ---
+    with tab_others:
         st.header("🎁 Wunschlisten der Anderen")
         other_wishes = [
             w for w in st.session_state['data'] 
@@ -887,6 +964,8 @@ def wishlist_page():
                     else:
                         st.warning(f"Wird bereits von {wish.get('claimed_by')} besorgt.")
 
+    # --- Tab: Secret suggestions & expert assignments ---
+    with tab_suggestions:
         # --- Gift Suggestions for Others ---
         st.header("💡 Geschenkvorschlag machen")
         with st.expander("Einen geheimen Geschenkvorschlag für jemanden machen"):
@@ -1072,6 +1151,8 @@ def wishlist_page():
                         save_data(st.session_state['data'])
                         st.rerun()
 
+    # --- Tab: Shopping (spending) ---
+    with tab_shopping:
         # --- Cost Summary Table ---
         st.header("💰 Meine Ausgaben")
         purchased_items = [
@@ -1173,9 +1254,7 @@ def wishlist_page():
 def meal_planning_page():
     """Display the meal planning page with dish proposals and day assignments."""
     
-    if st.button("⬅️ Zurück zur Übersicht"):
-        navigate_to('dashboard')
-        st.rerun()
+    back_to_dashboard()
     
     st.title("🍽️ Essensplanung für die Weihnachtsfeiertage")
     
@@ -1195,12 +1274,7 @@ def meal_planning_page():
     }
     
     # Define the days
-    days = [
-        {"date": "2025-12-23", "name": "23. Dezember", "emoji": "🎄"},
-        {"date": "2025-12-24", "name": "Heiligabend (24.12.)", "emoji": "🎄"},
-        {"date": "2025-12-25", "name": "1. Weihnachtstag (25.12.)", "emoji": "🎅"},
-        {"date": "2025-12-26", "name": "2. Weihnachtstag (26.12.)", "emoji": "🎁"}
-    ]
+    days = get_christmas_days()
     
     # Two columns layout
     col_proposals, col_schedule = st.columns([1, 1])
@@ -1386,21 +1460,14 @@ def meal_planning_page():
 def attendance_page():
     """Display the attendance tracking page."""
     
-    if st.button("⬅️ Zurück zur Übersicht"):
-        navigate_to('dashboard')
-        st.rerun()
+    back_to_dashboard()
     
     st.title("📅 Wer kommt wann?")
     
     st.write("Hier könnt ihr eintragen, wer an welchen Tagen dabei ist.")
     
     # Define the days
-    days = [
-        {"date": "2025-12-23", "name": "23. Dezember (Montag)"},
-        {"date": "2025-12-24", "name": "24. Dezember (Heiligabend)"},
-        {"date": "2025-12-25", "name": "25. Dezember (1. Weihnachtstag)"},
-        {"date": "2025-12-26", "name": "26. Dezember (2. Weihnachtstag)"}
-    ]
+    days = get_christmas_days()
     
     # Initialize attendance data
     if 'attendance' not in st.session_state.planning_data:
@@ -1542,9 +1609,7 @@ def attendance_page():
 def advent_calendar_page():
     """Display the advent calendar page."""
     
-    if st.button("⬅️ Zurück zur Übersicht"):
-        navigate_to('dashboard')
-        st.rerun()
+    back_to_dashboard()
     
     st.title("🎄 Adventskalender")
     
@@ -1562,7 +1627,7 @@ def advent_calendar_page():
     # Create a consistent random mapping of days to images using a fixed seed
     # This ensures ALL users see the same image for the same day
     import random
-    rng = random.Random(2025)  # Use separate Random instance with fixed seed
+    rng = random.Random(SEASON_YEAR)  # Seed per season: same for all users, new mix every year
     if len(image_files) >= 24:
         shuffled_images = image_files.copy()
         rng.shuffle(shuffled_images)  # Shuffle with fixed seed
