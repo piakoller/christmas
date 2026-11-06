@@ -8,6 +8,10 @@ import json
 import uuid
 import datetime
 import base64
+import hashlib
+import hmac
+import os
+import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from io import BytesIO
@@ -131,6 +135,9 @@ h1 { font-weight: 800; }
 [data-testid="stSidebar"] .stButton button p { font-size: 1rem; text-align: left; }
 [data-testid="stSidebar"] .stButton button[kind="secondary"] { background: transparent; }
 [data-testid="stSidebar"] .stButton button[kind="secondary"]:hover { background: #2A4A38; }
+[data-testid="stSidebar"] [data-testid="stExpander"] details { background: #2A4A38; border-color: #3B5E4A; }
+[data-testid="stSidebar"] [data-testid="stExpander"] .stButton button,
+[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button { justify-content: center; background: #1E3A2B; }
 
 /* Hero banner */
 .hero {
@@ -169,13 +176,6 @@ def apply_global_styles():
     st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
 
 
-def logout():
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
-    st.query_params.clear()
-    st.rerun()
-
-
 def render_sidebar(current_page: str):
     """Sidebar navigation shared by all pages."""
     with st.sidebar:
@@ -188,8 +188,41 @@ def render_sidebar(current_page: str):
                          type="primary" if key == current_page else "secondary"):
                 navigate_to(key)
         st.divider()
+        render_pin_settings()
         if st.button("🚪  Abmelden", key="nav_logout", width="stretch"):
             logout()
+
+
+def render_pin_settings():
+    """Sidebar: change your own PIN; Dieter and Gudrun can reset someone else's."""
+    user = st.session_state['username']
+    with st.expander("🔑 PIN ändern"):
+        with st.form("change_pin_form", border=False, clear_on_submit=True):
+            old_pin = st.text_input("Aktuelle PIN", type="password")
+            new_pin = st.text_input("Neue PIN", type="password", placeholder="4 bis 8 Ziffern")
+            repeat_pin = st.text_input("Neue PIN wiederholen", type="password")
+            submitted = st.form_submit_button("PIN ändern", width="stretch")
+        if submitted:
+            get_pin_store(refresh=True)
+            if not verify_pin(user, old_pin):
+                _slow_down_after_failure()
+                st.error("Die aktuelle PIN stimmt nicht.")
+            elif not is_valid_new_pin(new_pin):
+                st.error("Die PIN muss aus 4 bis 8 Ziffern bestehen.")
+            elif new_pin.strip() != repeat_pin.strip():
+                st.error("Die beiden PINs stimmen nicht überein.")
+            else:
+                set_pin(user, new_pin)
+                if st.session_state.get("remembered"):
+                    _write_auth_cookie(create_auth_token(user))  # keep this device logged in
+                st.success("PIN geändert. Andere Geräte sind jetzt abgemeldet.")
+
+    if user in SUPER_USERS:
+        with st.expander("👑 PIN zurücksetzen"):
+            target = st.selectbox("Für wen?", [u for u in ALL_USERS if u != user], key="reset_pin_target")
+            if st.button("PIN zurücksetzen", key="reset_pin_btn", width="stretch"):
+                reset_pin(target)
+                st.success(f"Erledigt. {target} legt beim nächsten Login mit dem Familien-Code eine neue PIN an.")
 
 
 def back_to_dashboard():
@@ -244,19 +277,20 @@ def normalize_supabase_url(url: str) -> str:
     return f"{parts.scheme}://{parts.netloc}"
 
 
-def _supabase_load(key: str) -> Any:
-    """Load one JSON document of the current season. Raises on connection errors."""
+def _supabase_load(key: str, season: Optional[int] = None) -> Any:
+    """Load one JSON document (default: current season). Raises on connection errors."""
     client = _get_supabase_client()
+    season = SEASON_YEAR if season is None else season
     result = (client.table(SUPABASE_TABLE).select("data")
-              .eq("season", SEASON_YEAR).eq("key", key).limit(1).execute())
+              .eq("season", season).eq("key", key).limit(1).execute())
     return result.data[0]["data"] if result.data else None
 
 
-def _supabase_save(key: str, data: Any) -> None:
-    """Insert or replace one JSON document of the current season."""
+def _supabase_save(key: str, data: Any, season: Optional[int] = None) -> None:
+    """Insert or replace one JSON document (default: current season)."""
     client = _get_supabase_client()
     client.table(SUPABASE_TABLE).upsert({
-        "season": SEASON_YEAR,
+        "season": SEASON_YEAR if season is None else season,
         "key": key,
         "data": data,
         "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -411,42 +445,324 @@ def save_planning_data(data: Dict[str, Any]):
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 
+# --- Login: avatars, PIN, "Angemeldet bleiben" ---
+AUTH_COOKIE = "xmas_auth"
+REMEMBER_DAYS = 60
+
+# Avatar colours per person (background, text)
+AVATAR_COLORS = {
+    "Dieter": ("#FCEBEB", "#791F1F"),
+    "Gudrun": ("#FAEEDA", "#633806"),
+    "Lukas": ("#E6F1FB", "#0C447C"),
+    "Pia": ("#EAF3DE", "#27500A"),
+    "Emmy": ("#FBEAF0", "#72243E"),
+    "Tim": ("#E1F5EE", "#085041"),
+}
+
+
+# PINs chosen by the people themselves. Only a salted hash is stored.
+# Store layout: {user: {"salt", "hash", "updated_at"}} or {user: {"reset": True}} after an admin reset.
+# People without an entry may still use a PIN from the secrets section [passwords] (old setup).
+PIN_STORE_SEASON = 0          # PINs are not tied to a Christmas season
+PINS_FILE = Path("pins.json")  # local fallback without Supabase
+PIN_HASH_ITERATIONS = 200_000
+
+
+def _load_pin_store() -> Dict[str, Any]:
+    if _get_supabase_client():
+        return _supabase_load("pins", season=PIN_STORE_SEASON) or {}
+    if PINS_FILE.exists():
+        with open(PINS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def get_pin_store(refresh: bool = False) -> Dict[str, Any]:
+    if refresh or "_pin_store" not in st.session_state:
+        try:
+            st.session_state["_pin_store"] = _load_pin_store()
+        except Exception as e:
+            st.error(f"PINs konnten nicht geladen werden: {e}")
+            return {}
+    return st.session_state["_pin_store"]
+
+
+def _save_pin_store(store: Dict[str, Any]):
+    if _get_supabase_client():
+        _supabase_save("pins", store, season=PIN_STORE_SEASON)
+    else:
+        with open(PINS_FILE, "w", encoding="utf-8") as f:
+            json.dump(store, f, indent=4)
+    st.session_state["_pin_store"] = store
+
+
+def _hash_pin(pin: str, salt_hex: str) -> str:
+    return hashlib.pbkdf2_hmac("sha256", pin.encode(), bytes.fromhex(salt_hex), PIN_HASH_ITERATIONS).hex()
+
+
+def has_pin(user: str) -> bool:
+    entry = get_pin_store().get(user)
+    if entry is not None:
+        return "hash" in entry
+    return user in USER_CREDENTIALS
+
+
+def verify_pin(user: str, pin: str) -> bool:
+    pin = (pin or "").strip()
+    entry = get_pin_store().get(user)
+    if entry is not None:
+        return "hash" in entry and hmac.compare_digest(_hash_pin(pin, entry["salt"]), entry["hash"])
+    legacy = USER_CREDENTIALS.get(user)
+    return bool(legacy) and hmac.compare_digest(legacy, pin)
+
+
+def _pin_fingerprint(user: str) -> Optional[str]:
+    """Changes whenever the PIN changes; used to invalidate remembered logins."""
+    entry = get_pin_store().get(user)
+    if entry is not None:
+        return entry.get("hash")
+    return USER_CREDENTIALS.get(user)
+
+
+def set_pin(user: str, pin: str):
+    store = dict(get_pin_store(refresh=True))  # latest state, so we don't overwrite others
+    salt = os.urandom(16).hex()
+    store[user] = {"salt": salt, "hash": _hash_pin(pin.strip(), salt),
+                   "updated_at": datetime.datetime.now().isoformat()}
+    _save_pin_store(store)
+
+
+def reset_pin(user: str):
+    store = dict(get_pin_store(refresh=True))
+    store[user] = {"reset": True, "updated_at": datetime.datetime.now().isoformat()}
+    _save_pin_store(store)
+
+
+def is_valid_new_pin(pin: str) -> bool:
+    pin = (pin or "").strip()
+    return pin.isdigit() and 4 <= len(pin) <= 8
+
+
+def _family_code() -> Optional[str]:
+    try:
+        code = (st.secrets.get("auth") or {}).get("family_code")
+    except Exception:
+        code = None
+    return str(code).strip() if code else None
+
+
+def _slow_down_after_failure():
+    """Make guessing PINs tedious: each failed attempt in a session waits a bit longer."""
+    attempts = st.session_state.get("failed_attempts", 0) + 1
+    st.session_state["failed_attempts"] = attempts
+    time.sleep(min(attempts, 10))
+
+
+def _auth_secret() -> Optional[bytes]:
+    """Server-side key to sign login cookies: [auth] cookie_secret, falling back to the Supabase key."""
+    try:
+        secret = (st.secrets.get("auth") or {}).get("cookie_secret") or (st.secrets.get("supabase") or {}).get("key")
+    except Exception:
+        secret = None
+    return str(secret).encode() if secret else None
+
+
+def _sign(user: str, expires: int) -> Optional[str]:
+    secret = _auth_secret()
+    fingerprint = _pin_fingerprint(user) if user in ALL_USERS else None
+    if not secret or not fingerprint:
+        return None
+    # The PIN is part of the signature: changing someone's PIN logs out their remembered devices.
+    msg = f"{user}:{expires}:{fingerprint}".encode()
+    return hmac.new(secret, msg, hashlib.sha256).hexdigest()
+
+
+def create_auth_token(user: str) -> Optional[str]:
+    expires = int(time.time()) + REMEMBER_DAYS * 24 * 3600
+    signature = _sign(user, expires)
+    return f"{user}:{expires}:{signature}" if signature else None
+
+
+def user_from_auth_token(token: Optional[str]) -> Optional[str]:
+    """Return the user name if the cookie token is valid and not expired."""
+    try:
+        user, expires, signature = str(token).split(":")
+        expected = _sign(user, int(expires))
+        if expected and int(expires) > time.time() and hmac.compare_digest(signature, expected):
+            return user
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
+def _write_auth_cookie(token: Optional[str]):
+    """Set (token) or delete (None) the login cookie in the browser."""
+    if token:
+        max_age = REMEMBER_DAYS * 24 * 3600
+        value = token
+    else:
+        max_age = 0
+        value = ""
+    st.html(
+        f"""<script>
+        document.cookie = "{AUTH_COOKIE}={value}; path=/; max-age={max_age}; SameSite=Lax"
+            + (location.protocol === "https:" ? "; Secure" : "");
+        </script>""",
+        unsafe_allow_javascript=True,
+    )
+
+
+def apply_pending_cookie_update():
+    """Cookie changes are queued in session state and written on the next render."""
+    if "cookie_update" in st.session_state:
+        _write_auth_cookie(st.session_state.pop("cookie_update"))
+
+
+def try_login_from_cookie():
+    """Log in automatically on reload when 'Angemeldet bleiben' was chosen."""
+    if st.session_state.get("authenticated") or st.session_state.get("logged_out"):
+        return
+    try:
+        token = st.context.cookies.get(AUTH_COOKIE)
+    except Exception:
+        token = None
+    user = user_from_auth_token(token) if token else None
+    if user:
+        st.session_state["authenticated"] = True
+        st.session_state["username"] = user
+        st.session_state["remembered"] = True
+
+
+def _avatar_css(selected: Optional[str]) -> str:
+    rules = []
+    for user in ALL_USERS:
+        bg, fg = AVATAR_COLORS.get(user, ("#F1EFE8", "#444441"))
+        ring = "box-shadow: 0 0 0 3px #FFFBF5, 0 0 0 6px #1E3A2B;" if user == selected else ""
+        rules.append(f"""
+        .st-key-avatar_{user} button::before {{
+            content: "{user[:2].upper()}"; background: {bg}; color: {fg}; {ring}
+        }}""")
+    return "<style>" + """
+    .st-key-avatar_grid { justify-content: center; gap: .75rem 1rem; margin: .5rem 0 1rem 0; }
+    .st-key-avatar_grid .stButton button {
+        flex-direction: column; gap: .4rem; width: 5.5rem; padding: .25rem 0;
+        background: transparent !important; border: none !important; box-shadow: none !important;
+    }
+    .st-key-avatar_grid .stButton button::before {
+        width: 3.6rem; height: 3.6rem; border-radius: 50%; display: flex; align-items: center;
+        justify-content: center; font-weight: 700; font-size: 1.05rem; letter-spacing: .03em;
+        transition: transform .15s ease;
+    }
+    .st-key-avatar_grid .stButton button:hover::before { transform: scale(1.06); }
+    .st-key-avatar_grid .stButton button p { font-size: .95rem; color: #3D4842; }
+    .pick-title { text-align: center; font-size: 1.35rem; font-weight: 700; color: #1E3A2B; margin: .5rem 0 0 0; }
+    """ + "".join(rules) + "</style>"
+
+
+def logout():
+    # Remember the logout in this session so the (still sent) cookie doesn't log us back in.
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.session_state["logged_out"] = True
+    st.session_state["cookie_update"] = None
+    st.query_params.clear()
+    st.rerun()
+
+
 # --- Main App Logic ---
+def _finish_login(user: str, remember: bool):
+    st.session_state["authenticated"] = True
+    st.session_state["username"] = user
+    st.session_state["remembered"] = remember
+    for key in ("logged_out", "failed_attempts", "login_user"):
+        st.session_state.pop(key, None)
+    if remember:
+        st.session_state["cookie_update"] = create_auth_token(user)
+    st.rerun()
+
+
+def _remember_checkbox():
+    return st.checkbox("Angemeldet bleiben", value=True,
+                       help=f"Auf diesem Gerät {REMEMBER_DAYS} Tage angemeldet bleiben. Auf fremden Geräten ausschalten.")
+
+
 def login_page():
-    """Displays the login page and handles authentication."""
+    """Login: tap your avatar, then enter your PIN (or create one with the family code)."""
     st.set_page_config(page_title=f"Weihnachten {SEASON_YEAR}", page_icon="🎄", layout="centered")
     apply_global_styles()
+    apply_pending_cookie_update()
+    get_pin_store(refresh=True)  # someone may have set or reset a PIN in the meantime
+    selected = st.session_state.get("login_user")
+    st.markdown(_avatar_css(selected), unsafe_allow_html=True)
+
     days = days_until_christmas_eve()
     st.markdown(f"""
-    <div class="hero" style="justify-content:center; text-align:center; flex-direction:column; gap:.5rem;">
-        <div style="font-size:3rem; line-height:1;">🎄</div>
+    <div class="hero" style="justify-content:center; text-align:center; flex-direction:column; gap:.4rem; padding:1.6rem;">
+        <div style="font-size:2.6rem; line-height:1;">🎄</div>
         <h1>Weihnachten {SEASON_YEAR}</h1>
-        <p>Wunschliste, Essensplanung &amp; mehr für die ganze Familie</p>
         <p style="color:#FFD666; font-weight:700;">Noch {days} {'Tag' if days == 1 else 'Tage'} bis Heiligabend</p>
     </div>
+    <div class="pick-title">Wer bist du?</div>
     """, unsafe_allow_html=True)
 
-    if not USER_CREDENTIALS:
-        st.error("Es sind keine Passwörter eingerichtet. Bitte den Abschnitt `[passwords]` in den Secrets ergänzen.")
-
-    with st.form("login_form", border=True):
-        username = st.selectbox("Wer bist du?", ALL_USERS)
-        password = st.text_input("Passwort", type="password")
-        submitted = st.form_submit_button("Anmelden", type="primary", width="stretch")
-
-        if submitted:
-            if USER_CREDENTIALS.get(username) == password:
-                st.session_state["authenticated"] = True
-                st.session_state["username"] = username
+    with st.container(horizontal=True, horizontal_alignment="center", key="avatar_grid"):
+        for user in ALL_USERS:
+            if st.button(user, key=f"avatar_{user}"):
+                st.session_state["login_user"] = user
                 st.rerun()
+
+    if not selected:
+        st.markdown("<p style='text-align:center; color:#5B6660;'>Tippe auf deinen Namen, um dich anzumelden.</p>",
+                    unsafe_allow_html=True)
+        return
+
+    if has_pin(selected):
+        with st.form("pin_form", border=True):
+            pin = st.text_input(f"PIN für {selected}", type="password", placeholder="••••")
+            remember = _remember_checkbox()
+            submitted = st.form_submit_button("Anmelden", type="primary", width="stretch")
+        st.caption("PIN vergessen? Dieter oder Gudrun können sie zurücksetzen.")
+        if submitted:
+            if verify_pin(selected, pin):
+                _finish_login(selected, remember)
             else:
-                st.error("Falsches Passwort!")
+                _slow_down_after_failure()
+                st.error("Falsche PIN. Versuch es nochmal.")
+        return
+
+    # No PIN yet: create one, protected by the family code
+    st.info(f"Hallo {selected}! Du hast noch keine PIN. Gib den Familien-Code ein und wähle deine PIN.")
+    with st.form("setup_pin_form", border=True):
+        code = st.text_input("Familien-Code", type="password")
+        new_pin = st.text_input("Deine neue PIN", type="password", placeholder="4 bis 8 Ziffern")
+        repeat_pin = st.text_input("PIN wiederholen", type="password")
+        remember = _remember_checkbox()
+        submitted = st.form_submit_button("PIN speichern und anmelden", type="primary", width="stretch")
+    if submitted:
+        family_code = _family_code()
+        if not family_code:
+            st.error("Der Familien-Code ist noch nicht eingerichtet (Secrets: `[auth] family_code`).")
+        elif not hmac.compare_digest(code.strip(), family_code):
+            _slow_down_after_failure()
+            st.error("Der Familien-Code stimmt nicht.")
+        elif not is_valid_new_pin(new_pin):
+            st.error("Die PIN muss aus 4 bis 8 Ziffern bestehen.")
+        elif new_pin.strip() != repeat_pin.strip():
+            st.error("Die beiden PINs stimmen nicht überein.")
+        else:
+            try:
+                set_pin(selected, new_pin)
+            except Exception as e:
+                st.error(f"PIN konnte nicht gespeichert werden: {e}")
+                return
+            _finish_login(selected, remember)
 
 
 def main_app():
     """The main application interface after successful login."""
     st.set_page_config(page_title=f"Weihnachten {SEASON_YEAR}", page_icon="🎄", layout="wide")
     apply_global_styles()
+    apply_pending_cookie_update()
     
     # Load data into session state if not already present
     if 'data' not in st.session_state:
@@ -1842,6 +2158,7 @@ def advent_calendar_page():
 # --- App Entry Point ---
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
+try_login_from_cookie()
 
 if st.session_state["authenticated"]:
     main_app()

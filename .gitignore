@@ -11,6 +11,7 @@ firebase-export*.json
 # Local fallback data files
 wunschliste_*.json
 planning_*.json
+pins.json
 
 # Backup files
 wunschliste_backup.json

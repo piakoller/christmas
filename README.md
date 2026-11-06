@@ -17,7 +17,17 @@ Jedes Jahr startet automatisch frisch (ab Februar gilt das neue Jahr); alte Jahr
 ## 2. Secrets vorbereiten
 
 [`.streamlit/secrets.toml.example`](.streamlit/secrets.toml.example) kopieren und ausfüllen
-(Supabase-URL, Secret key und ein Passwort pro Person). Diese Datei enthält Geheimnisse und
+(Supabase-URL, Secret key, Familien-Code und ein `cookie_secret` für „Angemeldet bleiben“).
+Eine zufällige Zeichenkette für `cookie_secret` erzeugt z. B.
+`python -c "import secrets; print(secrets.token_urlsafe(32))"`.
+
+### Login und PINs
+
+- Beim ersten Login tippt jede Person auf ihren Avatar und legt mit dem **Familien-Code** eine eigene PIN
+  (4–8 Ziffern) an. Gespeichert wird in Supabase nur ein Hash der PIN (Saison `0`, Key `pins`).
+- **PIN ändern:** in der Seitenleiste. Danach sind andere Geräte dieser Person abgemeldet.
+- **PIN vergessen:** Dieter oder Gudrun setzen sie in der Seitenleiste unter „PIN zurücksetzen“ zurück;
+  die Person legt dann mit dem Familien-Code eine neue an. Diese Datei enthält Geheimnisse und
 darf **nie** ins Git-Repository.
 
 ## 3. Auf Streamlit Community Cloud
