@@ -45,9 +45,9 @@ function Toast({ text }) {
 function Layout({ route, children }) {
   const { me, settings, season } = useApp();
   const pages = visiblePages(settings);
-  // Auf dem Handy: alle Seiten außer dem Countdown (der ist über die Übersicht erreichbar).
-  // Nur Symbole, daher passen auch 6 Einträge – die Einstellungen dürfen nie wegfallen.
-  const mobile = pages.filter((p) => p.key !== "countdown");
+  // Auf dem Handy: Countdown und Adventskalender sind über die Kacheln der Übersicht erreichbar.
+  // Die Einstellungen dürfen nie wegfallen.
+  const mobile = pages.filter((p) => p.key !== "countdown" && p.key !== "advent");
   return html`
     <div class="layout">
       <nav class="sidebar" aria-label="Hauptmenü">
