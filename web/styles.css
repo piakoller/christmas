@@ -273,6 +273,9 @@ input[type=date] { width: 100%; font: inherit; padding: .6rem .75rem; border-rad
 .votes { display: flex; flex-direction: column; gap: .3rem; flex-shrink: 0; }
 .vote.down.on { background: var(--danger-bg); border-color: #EDBDBA; }
 .vote.down.on span { color: var(--danger); }
+.vote-names { display: flex; flex-wrap: wrap; gap: .1rem .9rem; font-size: .85rem; }
+.vote-names .vote-up { color: var(--ok); }
+.vote-names .vote-down { color: var(--danger); }
 .link-btn { font: inherit; font-size: .85rem; border: 0; background: none; padding: 0; cursor: pointer; text-decoration: underline; color: var(--muted); }
 .link-btn.danger { color: var(--danger); }
 select.chip-select {

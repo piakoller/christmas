@@ -196,6 +196,10 @@ function DishItem({ dish, votes, comments, reload, onEdit }) {
         <div class="list-title">${dish.name}</div>
         ${dish.description && html`<div class="list-sub">${dish.description}</div>`}
         ${dish.ingredients?.length > 0 && html`<div class="list-sub clamp">🧾 ${dish.ingredients.join(", ")}</div>`}
+        ${(up.length > 0 || down.length > 0) && html`<div class="vote-names">
+          ${up.length > 0 && html`<span class="vote-up">👍 ${names(up)}</span>`}
+          ${down.length > 0 && html`<span class="vote-down">👎 ${names(down)}</span>`}
+        </div>`}
         <div class="list-meta">
           <${ResponsibleSelect} className="chip-select" value=${dish.responsible} disabled=${action.busy} onChange=${setResponsible} />
           <span class="muted">von ${dish.proposed_by === me.name ? "dir" : dish.proposed_by}</span>
