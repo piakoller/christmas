@@ -52,8 +52,14 @@ export function MealsPage({ params }) {
 // Vorschläge
 // ---------------------------------------------------------------------------
 function Proposals({ data, reload }) {
+  const [editing, setEditing] = useState(null); // null = zu, "new" = neues Gericht, Objekt = bearbeiten
+  const edit = (dish) => { setEditing(dish); window.scrollTo({ top: 0, behavior: "smooth" }); };
+
   return html`
-    <${DishForm} onDone=${reload} />
+    ${editing === null
+      ? html`<button class="btn primary block" onClick=${() => setEditing("new")}>➕ Gericht vorschlagen</button>`
+      : html`<${DishForm} key=${editing?.id || "new"} dish=${editing === "new" ? null : editing} schedule=${data.schedule}
+               onDone=${() => { setEditing(null); reload(); }} onCancel=${() => setEditing(null)} />`}
     ${data.dishes.length === 0 && html`<div class="section"><${Empty}>Noch keine Gerichte vorgeschlagen.<//></div>`}
     ${CATEGORIES.map((cat) => {
       const dishes = data.dishes.filter((d) => d.category === cat.key);
@@ -61,7 +67,8 @@ function Proposals({ data, reload }) {
       return html`<div class="section" key=${cat.key}>
         <h3>${cat.icon} ${cat.key}</h3>
         <div class="card list">
-          ${dishes.map((d) => html`<${DishItem} key=${d.id} dish=${d} votes=${data.votes.filter((v) => v.dish_id === d.id)} reload=${reload} />`)}
+          ${dishes.map((d) => html`<${DishItem} key=${d.id} dish=${d} votes=${data.votes.filter((v) => v.dish_id === d.id)}
+            reload=${reload} onEdit=${() => edit(d)} />`)}
         </div>
       </div>`;
     })}`;
@@ -76,38 +83,51 @@ function ResponsibleSelect({ value, onChange, disabled, className = "" }) {
   </select>`;
 }
 
-function DishForm({ onDone }) {
+// Neues Gericht vorschlagen oder ein bestehendes bearbeiten (eigene und fremde)
+function DishForm({ dish, schedule, onDone, onCancel }) {
   const { me, season } = useApp();
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [category, setCategory] = useState("Hauptspeise");
-  const [description, setDescription] = useState("");
-  const [responsible, setResponsible] = useState(null);
+  const editing = Boolean(dish);
+  const [name, setName] = useState(dish?.name || "");
+  const [category, setCategory] = useState(dish?.category || "Hauptspeise");
+  const [description, setDescription] = useState(dish?.description || "");
+  const [responsible, setResponsible] = useState(dish?.responsible || null);
   const { busy, error, setError, run } = useAction();
 
   const submit = async (e) => {
     e.preventDefault();
     if (!name.trim()) return setError("Bitte gib einen Namen für das Gericht ein.");
+    const fields = { name: name.trim(), category, description: description.trim(), responsible };
     let saved = null;
     const ok = await run(async () => {
-      saved = check(await supabase.from("dishes").insert({
-        season, name: name.trim(), category, description: description.trim(), proposed_by: me.name, responsible,
-      }).select().single(), "Gericht konnte nicht gespeichert werden");
-    }, `„${name.trim()}“ vorgeschlagen`);
+      if (!editing) {
+        saved = check(await supabase.from("dishes").insert({ ...fields, season, proposed_by: me.name }).select().single(),
+          "Gericht konnte nicht gespeichert werden");
+        return;
+      }
+      saved = check(await supabase.from("dishes").update(fields).eq("id", dish.id).select().single(),
+        "Gericht konnte nicht gespeichert werden");
+      // Neue Kategorie: im Menüplan mitwandern lassen statt herausfallen
+      if (category !== dish.category) {
+        const planned = schedule.filter((s) => s.dish_id === dish.id);
+        if (planned.length) {
+          check(await supabase.from("meal_schedule").delete().eq("dish_id", dish.id), "Menüplan konnte nicht angepasst werden");
+          check(await supabase.from("meal_schedule").insert(planned.map((s) => ({ season: s.season, day: s.day, category, dish_id: dish.id }))),
+            "Menüplan konnte nicht angepasst werden");
+        }
+      }
+    }, editing ? "Gericht gespeichert" : `„${name.trim()}“ vorgeschlagen`);
     if (ok) {
-      if (saved.responsible && saved.responsible !== me.name) notify("meal", saved.id).catch(console.warn);
-      setName(""); setDescription(""); setResponsible(null); setOpen(false);
+      const newResponsible = saved.responsible && saved.responsible !== me.name && saved.responsible !== dish?.responsible;
+      if (newResponsible) notify("meal", saved.id).catch(console.warn);
       onDone();
     }
   };
 
-  if (!open) {
-    return html`<button class="btn primary block" onClick=${() => setOpen(true)}>➕ Gericht vorschlagen</button>`;
-  }
   return html`
     <form class="card form" novalidate onSubmit=${submit}>
-      <div class="row between"><h3 style="margin:0">Neues Gericht</h3>
-        <button type="button" class="btn ghost small" onClick=${() => setOpen(false)} aria-label="Schließen">✕</button></div>
+      <div class="row between"><h3 style="margin:0">${editing ? "Gericht bearbeiten" : "Neues Gericht"}</h3>
+        <button type="button" class="btn ghost small" onClick=${onCancel} aria-label="Schließen">✕</button></div>
+      ${editing && dish.proposed_by !== me.name && html`<small class="muted">Vorgeschlagen von ${dish.proposed_by}</small>`}
       <input type="text" maxlength="200" placeholder="Gericht, z. B. Raclette" aria-label="Gericht"
              value=${name} onInput=${(e) => setName(e.target.value)} />
       <div class="segmented four" role="radiogroup" aria-label="Kategorie">
@@ -117,12 +137,12 @@ function DishForm({ onDone }) {
       <${ResponsibleSelect} value=${responsible} onChange=${setResponsible} />
       <textarea maxlength="2000" rows="2" style="min-height:0" placeholder="Notizen (optional)" aria-label="Notizen"
                 value=${description} onInput=${(e) => setDescription(e.target.value)}></textarea>
-      <button class="btn primary block" disabled=${busy}>Vorschlagen</button>
+      <button class="btn primary block" disabled=${busy}>${editing ? "Speichern" : "Vorschlagen"}</button>
       <${Alert} kind="error">${error}<//>
     </form>`;
 }
 
-function DishItem({ dish, votes, reload }) {
+function DishItem({ dish, votes, reload, onEdit }) {
   const { me } = useApp();
   const action = useAction();
   const voted = votes.some((v) => v.voter === me.name);
@@ -150,6 +170,7 @@ function DishItem({ dish, votes, reload }) {
         <div class="list-meta">
           <${ResponsibleSelect} className="chip-select" value=${dish.responsible} disabled=${action.busy} onChange=${setResponsible} />
           <span class="muted">von ${dish.proposed_by === me.name ? "dir" : dish.proposed_by}</span>
+          <button class="link-btn" disabled=${action.busy} onClick=${onEdit}>Bearbeiten</button>
           ${dish.proposed_by === me.name && html`<button class="link-btn danger" disabled=${action.busy} onClick=${remove}>Löschen</button>`}
         </div>
         <${Alert} kind="error">${action.error}<//>
