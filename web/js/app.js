@@ -45,8 +45,9 @@ function Toast({ text }) {
 function Layout({ route, children }) {
   const { me, settings, season } = useApp();
   const pages = visiblePages(settings);
-  // Auf dem Handy: maximal 5 Einträge in der unteren Leiste
-  const mobile = pages.filter((p) => p.key !== "countdown").slice(0, 5);
+  // Auf dem Handy: alle Seiten außer dem Countdown (der ist über die Übersicht erreichbar).
+  // Nur Symbole, daher passen auch 6 Einträge – die Einstellungen dürfen nie wegfallen.
+  const mobile = pages.filter((p) => p.key !== "countdown");
   return html`
     <div class="layout">
       <nav class="sidebar" aria-label="Hauptmenü">
