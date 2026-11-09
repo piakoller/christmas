@@ -321,6 +321,39 @@ input.switch:checked { background: #3B8F5A; }
 input.switch:checked::after { transform: translateX(1.2rem); }
 input.switch:disabled { opacity: .5; }
 
+/* Adventskalender / Foto-Quiz */
+.quiz-intro { margin-bottom: 1rem; }
+.doors { display: grid; grid-template-columns: repeat(6, 1fr); gap: .45rem; }
+@media (max-width: 560px) {
+  .doors { gap: .35rem; }
+  .door { border-radius: 10px; }
+  .door .door-num { font-size: 1rem; }
+  .door .door-icon { font-size: .8rem; }
+}
+.door {
+  aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .1rem;
+  font: inherit; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); cursor: pointer;
+}
+.door .door-num { font-weight: 800; font-size: 1.15rem; color: var(--green); }
+.door .door-icon { font-size: .95rem; }
+.door.locked { background: var(--surface-2); cursor: default; opacity: .65; }
+.door.open { background: #FFF7E0; border-color: #EBCB7A; }
+.door.done { background: var(--ok-bg); border-color: #B8D9C2; }
+.door.done .door-icon { font-weight: 700; color: var(--ok); font-size: .85rem; }
+.door.today { box-shadow: 0 0 0 2px var(--gold); }
+.door.active { box-shadow: 0 0 0 3px var(--green); }
+.door-detail { margin-top: 1rem; }
+.quiz-photo img { width: 100%; max-height: 60vh; object-fit: contain; border-radius: var(--radius-sm); background: var(--surface-2); cursor: zoom-in; display: block; }
+.guess-form { margin-top: .75rem; }
+.guess-form select { flex: 1; }
+.reveal { margin-top: .75rem; display: flex; flex-direction: column; gap: .35rem; }
+.reveal-year { font-size: 1.4rem; font-weight: 800; color: var(--green); }
+.reveal-caption { font-style: italic; }
+.winner { background: #FFF7E0; border: 1px solid #EBCB7A; border-radius: var(--radius); padding: .8rem 1rem; margin-bottom: .6rem; font-size: 1.05rem; }
+.rank-row { align-items: center; }
+.rank { width: 1.8rem; text-align: center; font-weight: 700; }
+.rank-row .list-main { flex-direction: row; align-items: baseline; gap: .5rem; }
+
 /* Menüplan */
 .plan-slot { padding: .6rem 0; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: .4rem; }
 .card > h3 + .plan-slot { border-top: 0; }
