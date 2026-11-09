@@ -13,22 +13,29 @@ const CATEGORIES = [
 const TABS = [
   { key: "vorschlaege", label: "🍴 Vorschläge" },
   { key: "plan", label: "📅 Menüplan" },
+  { key: "einkauf", label: "🛒 Einkauf" },
 ];
 
 async function loadMeals(season) {
-  const [dishes, votes, schedule] = await Promise.all([
+  const [dishes, votes, schedule, shopping] = await Promise.all([
     supabase.from("dishes").select("*").eq("season", season).order("created_at"),
     supabase.from("dish_votes").select("*"),
     supabase.from("meal_schedule").select("*").eq("season", season),
+    supabase.from("shopping_items").select("*").eq("season", season).order("created_at"),
   ]);
   const dishList = check(dishes, "Gerichte konnten nicht geladen werden");
   const ids = new Set(dishList.map((d) => d.id));
+  if (shopping.error) console.warn("Einkaufsliste konnte nicht geladen werden", shopping.error);
   return {
     dishes: dishList,
     votes: check(votes, "Stimmen konnten nicht geladen werden").filter((v) => ids.has(v.dish_id)),
     schedule: check(schedule, "Plan konnte nicht geladen werden"),
+    shopping: shopping.error ? null : shopping.data, // null = Tabelle fehlt noch
   };
 }
+
+// Zutaten-Text (eine pro Zeile) <-> Liste
+const toLines = (text) => text.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 50);
 
 export function MealsPage({ params }) {
   const { season } = useApp();
@@ -45,7 +52,8 @@ export function MealsPage({ params }) {
     ${error && html`<${Alert} kind="error">${error.message}<//>`}
     ${loading && !data && html`<${Loading} />`}
     ${data && tab === "vorschlaege" && html`<${Proposals} data=${data} reload=${reload} />`}
-    ${data && tab === "plan" && html`<${MenuPlan} data=${data} reload=${reload} />`}`;
+    ${data && tab === "plan" && html`<${MenuPlan} data=${data} reload=${reload} />`}
+    ${data && tab === "einkauf" && html`<${ShoppingList} data=${data} reload=${reload} />`}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,12 +99,13 @@ function DishForm({ dish, schedule, onDone, onCancel }) {
   const [category, setCategory] = useState(dish?.category || "Hauptspeise");
   const [description, setDescription] = useState(dish?.description || "");
   const [responsible, setResponsible] = useState(dish?.responsible || null);
+  const [ingredients, setIngredients] = useState((dish?.ingredients || []).join("\n"));
   const { busy, error, setError, run } = useAction();
 
   const submit = async (e) => {
     e.preventDefault();
     if (!name.trim()) return setError("Bitte gib einen Namen für das Gericht ein.");
-    const fields = { name: name.trim(), category, description: description.trim(), responsible };
+    const fields = { name: name.trim(), category, description: description.trim(), responsible, ingredients: toLines(ingredients) };
     let saved = null;
     const ok = await run(async () => {
       if (!editing) {
@@ -137,6 +146,9 @@ function DishForm({ dish, schedule, onDone, onCancel }) {
       <${ResponsibleSelect} value=${responsible} onChange=${setResponsible} />
       <textarea maxlength="2000" rows="2" style="min-height:0" placeholder="Notizen (optional)" aria-label="Notizen"
                 value=${description} onInput=${(e) => setDescription(e.target.value)}></textarea>
+      <textarea maxlength="3000" rows="3" style="min-height:0" aria-label="Zutaten, eine pro Zeile"
+                placeholder=${"Zutaten für die Einkaufsliste – eine pro Zeile, z. B.\n1 kg Raclettekäse\n2 kg Kartoffeln"}
+                value=${ingredients} onInput=${(e) => setIngredients(e.target.value)}></textarea>
       <button class="btn primary block" disabled=${busy}>${editing ? "Speichern" : "Vorschlagen"}</button>
       <${Alert} kind="error">${error}<//>
     </form>`;
@@ -167,6 +179,7 @@ function DishItem({ dish, votes, reload, onEdit }) {
       <div class="list-main">
         <div class="list-title">${dish.name}</div>
         ${dish.description && html`<div class="list-sub">${dish.description}</div>`}
+        ${dish.ingredients?.length > 0 && html`<div class="list-sub clamp">🧾 ${dish.ingredients.join(", ")}</div>`}
         <div class="list-meta">
           <${ResponsibleSelect} className="chip-select" value=${dish.responsible} disabled=${action.busy} onChange=${setResponsible} />
           <span class="muted">von ${dish.proposed_by === me.name ? "dir" : dish.proposed_by}</span>
@@ -241,5 +254,103 @@ function PlanSlot({ day, category, data, reload }) {
         </select>`}
       </div>
       <${Alert} kind="error">${action.error}<//>
+    </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Einkaufsliste: Zutaten aus dem Menüplan + eigene Einträge, gemeinsam abhaken
+// ---------------------------------------------------------------------------
+function ShoppingList({ data, reload }) {
+  const { me, season } = useApp();
+  const [newItem, setNewItem] = useState("");
+  const action = useAction();
+  const items = data.shopping;
+
+  if (items === null) {
+    return html`<${Alert} kind="info">Die Einkaufsliste ist noch nicht eingerichtet (Datenbank-Erweiterung fehlt).<//>`;
+  }
+
+  // Zutaten aller eingeplanten Gerichte, die noch nicht auf der Liste stehen
+  const plannedIds = [...new Set(data.schedule.map((s) => s.dish_id))];
+  const dishById = Object.fromEntries(data.dishes.map((d) => [d.id, d]));
+  const onList = new Set(items.filter((i) => i.dish_id).map((i) => `${i.dish_id}|${i.name.toLowerCase()}`));
+  const missing = plannedIds.flatMap((id) => (dishById[id]?.ingredients || [])
+    .filter((name) => !onList.has(`${id}|${name.toLowerCase()}`))
+    .map((name) => ({ season, name, dish_id: id, added_by: me.name })));
+  const plannedWithoutIngredients = plannedIds.filter((id) => dishById[id] && !(dishById[id].ingredients || []).length).length;
+
+  const importFromPlan = () => action.run(async () => {
+    check(await supabase.from("shopping_items").insert(missing), "Zutaten konnten nicht übernommen werden");
+  }, `${missing.length} ${missing.length === 1 ? "Zutat" : "Zutaten"} übernommen`).then(() => reload());
+
+  const add = (e) => {
+    e.preventDefault();
+    const name = newItem.trim();
+    if (!name) return;
+    action.run(async () => {
+      check(await supabase.from("shopping_items").insert({ season, name, added_by: me.name }), "Konnte nicht hinzugefügt werden");
+    }).then((ok) => { if (ok) { setNewItem(""); reload(); } });
+  };
+
+  const toggle = (item) => action.run(async () => {
+    check(await supabase.from("shopping_items").update({ done: !item.done, done_by: item.done ? null : me.name }).eq("id", item.id),
+      "Konnte nicht gespeichert werden");
+  }).then((ok) => ok && reload());
+
+  const remove = (item) => action.run(async () => {
+    check(await supabase.from("shopping_items").delete().eq("id", item.id), "Konnte nicht gelöscht werden");
+  }).then((ok) => ok && reload());
+
+  const done = items.filter((i) => i.done);
+  const clearDone = () => confirm(`${done.length} erledigte ${done.length === 1 ? "Eintrag" : "Einträge"} entfernen?`) && action.run(async () => {
+    check(await supabase.from("shopping_items").delete().in("id", done.map((i) => i.id)), "Konnte nicht aufgeräumt werden");
+  }, "Aufgeräumt").then((ok) => ok && reload());
+
+  const open = items.filter((i) => !i.done);
+  const source = (i) => (i.dish_id && dishById[i.dish_id] ? `für ${dishById[i.dish_id].name}` : `von ${i.added_by === me.name ? "dir" : i.added_by}`);
+
+  return html`
+    ${missing.length > 0
+      ? html`<button class="btn primary block" disabled=${action.busy} onClick=${importFromPlan}>
+          📥 ${missing.length} ${missing.length === 1 ? "Zutat" : "Zutaten"} aus dem Menüplan übernehmen</button>`
+      : html`<p class="muted" style="margin:0 0 .5rem;font-size:.9rem">${plannedIds.length
+          ? "✓ Alle Zutaten aus dem Menüplan stehen auf der Liste."
+          : "Plant Gerichte im Menüplan ein und tragt bei den Gerichten Zutaten ein – dann lassen sie sich hier übernehmen."}</p>`}
+    ${plannedWithoutIngredients > 0 && html`<p class="muted" style="margin:.4rem 0 0;font-size:.85rem">
+      ${plannedWithoutIngredients} eingeplante${plannedWithoutIngredients === 1 ? "s Gericht hat" : " Gerichte haben"} noch keine Zutaten – unter „Vorschläge → Bearbeiten“ ergänzen.</p>`}
+
+    <form class="inline-form add-item" novalidate onSubmit=${add} style="margin-top:.75rem">
+      <input type="text" maxlength="200" placeholder="Etwas hinzufügen, z. B. Kaffee" aria-label="Neuer Eintrag"
+             value=${newItem} onInput=${(e) => setNewItem(e.target.value)} />
+      <button class="btn green" disabled=${action.busy || !newItem.trim()} aria-label="Hinzufügen">＋</button>
+    </form>
+
+    <div class="section" style="margin-top:1rem">
+      ${open.length === 0
+        ? html`<${Empty}>${items.length ? "Alles eingekauft! 🎉" : "Die Einkaufsliste ist noch leer."}<//>`
+        : html`<div class="card list">${open.map((i) => html`<${ShoppingRow} key=${i.id} item=${i} sub=${source(i)}
+            busy=${action.busy} onToggle=${() => toggle(i)} onRemove=${() => remove(i)} />`)}</div>`}
+    </div>
+
+    ${done.length > 0 && html`
+      <div class="row between" style="margin:1.25rem 0 .5rem"><h3 style="margin:0">✓ Erledigt (${done.length})</h3>
+        <button class="link-btn" disabled=${action.busy} onClick=${clearDone}>Erledigte entfernen</button></div>
+      <div class="card list done-list">${done.map((i) => html`<${ShoppingRow} key=${i.id} item=${i}
+          sub=${`abgehakt von ${i.done_by === me.name ? "dir" : i.done_by || "?"}`}
+          busy=${action.busy} onToggle=${() => toggle(i)} onRemove=${() => remove(i)} />`)}</div>`}
+    <${Alert} kind="error">${action.error}<//>`;
+}
+
+function ShoppingRow({ item, sub, busy, onToggle, onRemove }) {
+  return html`
+    <div class=${`list-item shop-row ${item.done ? "is-done" : ""}`}>
+      <button type="button" class=${`tick ${item.done ? "on" : ""}`} role="checkbox" aria-checked=${item.done}
+              aria-label=${`${item.name} ${item.done ? "nicht mehr abhaken" : "abhaken"}`} disabled=${busy} onClick=${onToggle}>
+        ${item.done ? "✓" : ""}</button>
+      <div class="list-main">
+        <div class="list-title">${item.name}</div>
+        <div class="list-sub">${sub}</div>
+      </div>
+      <button type="button" class="chip-x" aria-label=${`${item.name} löschen`} disabled=${busy} onClick=${onRemove}>✕</button>
     </div>`;
 }
