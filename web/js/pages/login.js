@@ -79,7 +79,7 @@ function PinForm({ name }) {
       <${RememberBox} value=${remember} onChange=${setRemember} />
       <button class="btn primary block" disabled=${busy || !pin}>${busy ? "Anmelden …" : "Anmelden"}</button>
       <${Alert} kind="error">${error}<//>
-      <small>PIN vergessen? Dieter oder Gudrun können sie zurücksetzen.</small>
+      <small>PIN vergessen? Pia kann sie zurücksetzen.</small>
     </form>`;
 }
 

@@ -183,7 +183,7 @@ function MyWishItem({ wish, purchase, onEdit, reload }) {
         <button class="link-btn danger" disabled=${action.busy}
           onClick=${() => confirm(`„${wish.name}“ wirklich löschen?`) && run(() => deleteWish(wish), "Wunsch gelöscht")}>Löschen</button>
       </div>
-      ${action.error && html`<span class="error-text">${action.error.includes("schon jemand") ? "Das geht gerade nicht. Frag am besten Dieter oder Gudrun." : action.error}</span>`}
+      ${action.error && html`<span class="error-text">${action.error.includes("schon jemand") ? "Das geht gerade nicht. Frag am besten Pia." : action.error}</span>`}
     <//>`;
 }
 
@@ -390,7 +390,9 @@ function SuggestionForm({ suggestion, onDone, onCancel }) {
 // Einkäufe & Ausgaben
 // ---------------------------------------------------------------------------
 function Shopping({ data, reload }) {
-  const { me, profiles } = useApp();
+  const { me, profiles, groups } = useApp();
+  // Die Übersicht "Ausgaben aller" ist für die Eltern (Dieter & Gudrun), nicht an die Admin-Rolle gebunden
+  const isParent = groups.some((g) => g.name === "Eltern" && g.members.includes(me.name));
   const mine = data.purchases.filter((p) => p.claimed_by === me.name && p.recipient !== me.name);
   const open = mine.filter((p) => !p.purchased);
   const bought = mine.filter((p) => p.purchased);
@@ -414,7 +416,7 @@ function Shopping({ data, reload }) {
       <h3 style="margin:1.25rem 0 .5rem">✅ Gekauft</h3>
       <div class="card list">${bought.map((p) => html`<${BoughtItem} key=${p.item_id} purchase=${p} reload=${reload} />`)}</div>`}
 
-    ${me.is_admin && html`<${AdminSpending} data=${data} profiles=${profiles} />`}`;
+    ${isParent && html`<${AdminSpending} data=${data} profiles=${profiles} />`}`;
 }
 
 function OpenPurchase({ purchase, item, reload }) {

@@ -15,7 +15,7 @@ Eine installierbare Web-App (PWA) mit Push-Nachrichten, gehostet auf **GitHub Pa
 3. Auf den eigenen Namen tippen. Beim ersten Mal den **Familien-Code** eingeben und eine eigene PIN (4–8 Ziffern) wählen.
 4. Unter **Einstellungen → Benachrichtigungen** die Nachrichten auf diesem Gerät einschalten und wählen, wofür man benachrichtigt werden möchte.
 
-PIN vergessen? Dieter oder Gudrun setzen sie unter Einstellungen → Verwaltung zurück.
+PIN vergessen? Pia setzt sie unter Einstellungen → Verwaltung zurück.
 
 ## Aufbau
 
