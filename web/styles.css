@@ -357,6 +357,13 @@ input.switch:disabled { opacity: .5; }
 .rank { width: 1.8rem; text-align: center; font-weight: 700; }
 .rank-row .list-main { flex-direction: row; align-items: baseline; gap: .5rem; }
 
+/* Kommentare zu Gerichten */
+.comments { margin-top: .5rem; padding: .6rem .75rem; background: var(--surface-2); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: .55rem; }
+.comment-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem; font-size: .85rem; }
+.comment-text { font-size: .95rem; white-space: pre-line; overflow-wrap: anywhere; }
+.comments .add-item input { background: #fff; padding: .45rem .6rem; font-size: .95rem; min-width: 0; }
+.inline-form .btn { flex-shrink: 0; white-space: nowrap; }
+
 /* Einkaufsliste */
 .add-item input { flex: 1; width: auto; padding: .6rem .75rem; font-size: 1rem; }
 .add-item .btn { min-width: 2.75rem; font-size: 1.2rem; }

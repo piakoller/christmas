@@ -1,6 +1,7 @@
 import { html, useState, useApp, useLoader, useAction, navigate, Alert, BackLink, Loading, Empty } from "../ui.js";
 import { supabase, check } from "../supabase.js";
 import { christmasDays } from "../lib/season.js";
+import { dateTime } from "../lib/format.js";
 import { notify } from "../lib/push.js";
 
 const CATEGORIES = [
@@ -17,20 +18,23 @@ const TABS = [
 ];
 
 async function loadMeals(season) {
-  const [dishes, votes, schedule, shopping] = await Promise.all([
+  const [dishes, votes, schedule, shopping, comments] = await Promise.all([
     supabase.from("dishes").select("*").eq("season", season).order("created_at"),
     supabase.from("dish_votes").select("*"),
     supabase.from("meal_schedule").select("*").eq("season", season),
     supabase.from("shopping_items").select("*").eq("season", season).order("created_at"),
+    supabase.from("dish_comments").select("*").order("created_at"),
   ]);
   const dishList = check(dishes, "Gerichte konnten nicht geladen werden");
   const ids = new Set(dishList.map((d) => d.id));
   if (shopping.error) console.warn("Einkaufsliste konnte nicht geladen werden", shopping.error);
+  if (comments.error) console.warn("Kommentare konnten nicht geladen werden", comments.error);
   return {
     dishes: dishList,
     votes: check(votes, "Stimmen konnten nicht geladen werden").filter((v) => ids.has(v.dish_id)),
     schedule: check(schedule, "Plan konnte nicht geladen werden"),
     shopping: shopping.error ? null : shopping.data, // null = Tabelle fehlt noch
+    comments: comments.error ? null : comments.data.filter((c) => ids.has(c.dish_id)), // null = Tabelle fehlt noch
   };
 }
 
@@ -79,6 +83,7 @@ function Proposals({ data, reload }) {
         <h3>${cat.icon} ${cat.key}</h3>
         <div class="card list">
           ${dishes.map((d) => html`<${DishItem} key=${d.id} dish=${d} votes=${data.votes.filter((v) => v.dish_id === d.id)}
+            comments=${data.comments === null ? null : data.comments.filter((c) => c.dish_id === d.id)}
             reload=${reload} onEdit=${() => edit(d)} />`)}
         </div>
       </div>`;
@@ -157,9 +162,10 @@ function DishForm({ dish, schedule, onDone, onCancel }) {
     </form>`;
 }
 
-function DishItem({ dish, votes, reload, onEdit }) {
+function DishItem({ dish, votes, comments, reload, onEdit }) {
   const { me } = useApp();
   const action = useAction();
+  const [showComments, setShowComments] = useState(false);
   const up = votes.filter((v) => (v.value ?? 1) === 1);
   const down = votes.filter((v) => v.value === -1);
   const mine = votes.find((v) => v.voter === me.name)?.value ?? 0; // 1, -1 oder 0
@@ -195,7 +201,10 @@ function DishItem({ dish, votes, reload, onEdit }) {
           <span class="muted">von ${dish.proposed_by === me.name ? "dir" : dish.proposed_by}</span>
           <button class="link-btn" disabled=${action.busy} onClick=${onEdit}>Bearbeiten</button>
           ${dish.proposed_by === me.name && html`<button class="link-btn danger" disabled=${action.busy} onClick=${remove}>Löschen</button>`}
+          ${comments !== null && html`<button class="link-btn" aria-expanded=${showComments} onClick=${() => setShowComments(!showComments)}>
+            💬 ${comments.length ? `Kommentare (${comments.length})` : "Kommentieren"}</button>`}
         </div>
+        ${showComments && comments !== null && html`<${DishComments} dish=${dish} comments=${comments} reload=${reload} />`}
         <${Alert} kind="error">${action.error}<//>
       </div>
       <div class="votes">
@@ -368,5 +377,44 @@ function ShoppingRow({ item, sub, busy, onToggle, onRemove }) {
         <div class="list-sub">${sub}</div>
       </div>
       <button type="button" class="chip-x" aria-label=${`${item.name} löschen`} disabled=${busy} onClick=${onRemove}>✕</button>
+    </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Kommentare zu einem Gericht
+// ---------------------------------------------------------------------------
+function DishComments({ dish, comments, reload }) {
+  const { me } = useApp();
+  const [text, setText] = useState("");
+  const action = useAction();
+
+  const add = (e) => {
+    e.preventDefault();
+    const value = text.trim();
+    if (!value) return;
+    action.run(async () => {
+      check(await supabase.from("dish_comments").insert({ dish_id: dish.id, author: me.name, text: value }), "Kommentar konnte nicht gespeichert werden");
+    }).then((ok) => { if (ok) { setText(""); reload(); } });
+  };
+
+  const remove = (c) => confirm("Kommentar löschen?") && action.run(async () => {
+    check(await supabase.from("dish_comments").delete().eq("id", c.id), "Kommentar konnte nicht gelöscht werden");
+  }).then((ok) => ok && reload());
+
+  return html`
+    <div class="comments">
+      ${comments.map((c) => html`<div class="comment" key=${c.id}>
+        <div class="comment-head"><strong>${c.author === me.name ? "Du" : c.author}</strong>
+          <span class="muted">${dateTime(c.created_at)}</span>
+          ${c.author === me.name && html`<button class="link-btn danger" disabled=${action.busy} onClick=${() => remove(c)}>Löschen</button>`}
+        </div>
+        <div class="comment-text">${c.text}</div>
+      </div>`)}
+      <form class="inline-form add-item" novalidate onSubmit=${add}>
+        <input type="text" maxlength="500" placeholder="Kommentar schreiben …" aria-label=${`Kommentar zu ${dish.name}`}
+               value=${text} onInput=${(e) => setText(e.target.value)} />
+        <button class="btn green small" disabled=${action.busy || !text.trim()}>Senden</button>
+      </form>
+      ${action.error && html`<span class="error-text">${action.error}</span>`}
     </div>`;
 }
