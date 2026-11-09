@@ -59,8 +59,8 @@ CAPTIONS = {
     "2022": "Hola desde Business Class - Weihnachten mit Stil! ✈️",
     "2023": "Team Weihnachten bereit zum Anpfiff - äh, Auspacken! ⚽",
     "2024": "Frohe Weihnachten 2024 - Und das Abenteuer geht weiter! 🎄",
-    "IMG_0348": "Heiligabend 2025 🎄",
-    "IMG_0354": "Heiligabend 2025 – später am Abend ✨",
+    "IMG_0348": "Die Feuerschalen-Tradition ist geboren. Dresscode: Mütze ist Pflicht! 🧣",
+    "IMG_0354": "Pistenbereit vom Helm bis zur Hüfte, darunter noch voll im Wohnzimmer-Modus 🩴",
 }
 
 
