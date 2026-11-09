@@ -182,3 +182,6 @@ supabase/.temp/
 
 # Lokale Claude-Code-Dateien (Arbeitskopien, Startkonfiguration)
 .claude/
+
+# Familienfotos: liegen im privaten Supabase-Speicher, nicht im öffentlichen Repository
+images/
