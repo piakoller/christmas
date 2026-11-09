@@ -70,7 +70,10 @@ function Proposals({ data, reload }) {
                onDone=${() => { setEditing(null); reload(); }} onCancel=${() => setEditing(null)} />`}
     ${data.dishes.length === 0 && html`<div class="section"><${Empty}>Noch keine Gerichte vorgeschlagen.<//></div>`}
     ${CATEGORIES.map((cat) => {
-      const dishes = data.dishes.filter((d) => d.category === cat.key);
+      // Beliebteste zuerst (👍 minus 👎), bei Gleichstand in der Reihenfolge des Vorschlags
+      const score = (d) => data.votes.filter((v) => v.dish_id === d.id).reduce((s, v) => s + (v.value ?? 1), 0);
+      const dishes = data.dishes.filter((d) => d.category === cat.key)
+        .map((d, i) => ({ d, i, s: score(d) })).sort((a, b) => b.s - a.s || a.i - b.i).map((x) => x.d);
       if (!dishes.length) return null;
       return html`<div class="section" key=${cat.key}>
         <h3>${cat.icon} ${cat.key}</h3>
@@ -157,13 +160,20 @@ function DishForm({ dish, schedule, onDone, onCancel }) {
 function DishItem({ dish, votes, reload, onEdit }) {
   const { me } = useApp();
   const action = useAction();
-  const voted = votes.some((v) => v.voter === me.name);
+  const up = votes.filter((v) => (v.value ?? 1) === 1);
+  const down = votes.filter((v) => v.value === -1);
+  const mine = votes.find((v) => v.voter === me.name)?.value ?? 0; // 1, -1 oder 0
 
-  const toggleVote = () => action.run(async () => {
-    check(voted
-      ? await supabase.from("dish_votes").delete().eq("dish_id", dish.id).eq("voter", me.name)
-      : await supabase.from("dish_votes").insert({ dish_id: dish.id, voter: me.name }), "Stimme konnte nicht gespeichert werden");
+  // Gleicher Daumen nochmal = Stimme zurücknehmen; anderer Daumen = Stimme umstellen
+  const vote = (value) => action.run(async () => {
+    const base = supabase.from("dish_votes");
+    check(mine === value
+      ? await base.delete().eq("dish_id", dish.id).eq("voter", me.name)
+      : mine === 0
+        ? await base.insert({ dish_id: dish.id, voter: me.name, value })
+        : await base.update({ value }).eq("dish_id", dish.id).eq("voter", me.name), "Stimme konnte nicht gespeichert werden");
   }).then((ok) => ok && reload());
+  const names = (list) => list.map((v) => v.voter).join(", ");
 
   const setResponsible = (name) => action.run(async () => {
     check(await supabase.from("dishes").update({ responsible: name }).eq("id", dish.id), "Konnte nicht gespeichert werden");
@@ -188,10 +198,16 @@ function DishItem({ dish, votes, reload, onEdit }) {
         </div>
         <${Alert} kind="error">${action.error}<//>
       </div>
-      <button class=${`vote ${voted ? "on" : ""}`} disabled=${action.busy} onClick=${toggleVote} aria-pressed=${voted}
-              title=${votes.length ? `Dafür: ${votes.map((v) => v.voter).join(", ")}` : "Dafür stimmen"}>
-        👍<span>${votes.length}</span>
-      </button>
+      <div class="votes">
+        <button class=${`vote ${mine === 1 ? "on" : ""}`} disabled=${action.busy} onClick=${() => vote(1)} aria-pressed=${mine === 1}
+                aria-label=${`Daumen hoch, ${up.length}`} title=${up.length ? `Dafür: ${names(up)}` : "Dafür stimmen"}>
+          👍<span>${up.length}</span>
+        </button>
+        <button class=${`vote down ${mine === -1 ? "on" : ""}`} disabled=${action.busy} onClick=${() => vote(-1)} aria-pressed=${mine === -1}
+                aria-label=${`Daumen runter, ${down.length}`} title=${down.length ? `Dagegen: ${names(down)}` : "Dagegen stimmen"}>
+          👎<span>${down.length}</span>
+        </button>
+      </div>
     </div>`;
 }
 

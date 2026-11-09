@@ -270,6 +270,9 @@ input[type=date] { width: 100%; font: inherit; padding: .6rem .75rem; border-rad
 .vote span { font-size: .8rem; font-weight: 700; color: var(--muted); }
 .vote.on { background: var(--ok-bg); border-color: #B8D9C2; }
 .vote.on span { color: var(--ok); }
+.votes { display: flex; flex-direction: column; gap: .3rem; flex-shrink: 0; }
+.vote.down.on { background: var(--danger-bg); border-color: #EDBDBA; }
+.vote.down.on span { color: var(--danger); }
 .link-btn { font: inherit; font-size: .85rem; border: 0; background: none; padding: 0; cursor: pointer; text-decoration: underline; color: var(--muted); }
 .link-btn.danger { color: var(--danger); }
 select.chip-select {
