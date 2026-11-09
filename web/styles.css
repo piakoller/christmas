@@ -273,9 +273,23 @@ input[type=date] { width: 100%; font: inherit; padding: .6rem .75rem; border-rad
 .votes { display: flex; flex-direction: column; gap: .3rem; flex-shrink: 0; }
 .vote.down.on { background: var(--danger-bg); border-color: #EDBDBA; }
 .vote.down.on span { color: var(--danger); }
-.vote-names { display: flex; flex-wrap: wrap; gap: .1rem .9rem; font-size: .85rem; }
-.vote-names .vote-up { color: var(--ok); }
-.vote-names .vote-down { color: var(--danger); }
+/* Übersichtstabelle: wer stimmt wie */
+.view-switch { margin-top: .9rem; }
+.vote-table-wrap { margin-top: .9rem; padding: .5rem; overflow-x: auto; }
+.vote-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.vote-table th, .vote-table td { text-align: center; padding: .4rem .2rem; border-bottom: 1px solid var(--border); }
+.vote-table th { font-weight: 600; }
+.vote-table th .avatar.small { width: 1.7rem; height: 1.7rem; font-size: .8rem; margin: 0 auto; }
+.vote-table th.me .avatar { box-shadow: 0 0 0 2px var(--green); }
+.vote-table .dish-col { text-align: left; font-weight: 600; min-width: 6.5rem; padding-left: .3rem; }
+.vote-table td.up { background: var(--ok-bg); }
+.vote-table td.down { background: var(--danger-bg); }
+.vote-table td.none { color: #C9C1B1; }
+.vote-table td.sum { font-weight: 800; white-space: nowrap; min-width: 2rem; }
+.vote-table td.sum.pos { color: var(--ok); }
+.vote-table td.sum.neg { color: var(--danger); }
+.vote-table .cat-row td { text-align: left; font-weight: 700; color: var(--green); background: var(--surface-2); font-size: .85rem; }
+.vote-table tbody tr:last-child td { border-bottom: 0; }
 .link-btn { font: inherit; font-size: .85rem; border: 0; background: none; padding: 0; cursor: pointer; text-decoration: underline; color: var(--muted); }
 .link-btn.danger { color: var(--danger); }
 select.chip-select {

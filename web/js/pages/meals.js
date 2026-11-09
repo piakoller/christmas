@@ -65,7 +65,16 @@ export function MealsPage({ params }) {
 // ---------------------------------------------------------------------------
 function Proposals({ data, reload }) {
   const [editing, setEditing] = useState(null); // null = zu, "new" = neues Gericht, Objekt = bearbeiten
-  const edit = (dish) => { setEditing(dish); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const [view, setView] = useState("liste");    // "liste" oder "tabelle"
+  const edit = (dish) => { setEditing(dish); setView("liste"); window.scrollTo({ top: 0, behavior: "smooth" }); };
+
+  // Pro Kategorie die Gerichte, beliebteste zuerst (👍 minus 👎), bei Gleichstand in Vorschlags-Reihenfolge
+  const score = (d) => data.votes.filter((v) => v.dish_id === d.id).reduce((s, v) => s + (v.value ?? 1), 0);
+  const sortedByCategory = CATEGORIES.map((cat) => ({
+    cat,
+    dishes: data.dishes.filter((d) => d.category === cat.key)
+      .map((d, i) => ({ d, i, s: score(d) })).sort((a, b) => b.s - a.s || a.i - b.i).map((x) => x.d),
+  })).filter((g) => g.dishes.length);
 
   return html`
     ${editing === null
@@ -73,21 +82,19 @@ function Proposals({ data, reload }) {
       : html`<${DishForm} key=${editing?.id || "new"} dish=${editing === "new" ? null : editing} schedule=${data.schedule}
                onDone=${() => { setEditing(null); reload(); }} onCancel=${() => setEditing(null)} />`}
     ${data.dishes.length === 0 && html`<div class="section"><${Empty}>Noch keine Gerichte vorgeschlagen.<//></div>`}
-    ${CATEGORIES.map((cat) => {
-      // Beliebteste zuerst (👍 minus 👎), bei Gleichstand in der Reihenfolge des Vorschlags
-      const score = (d) => data.votes.filter((v) => v.dish_id === d.id).reduce((s, v) => s + (v.value ?? 1), 0);
-      const dishes = data.dishes.filter((d) => d.category === cat.key)
-        .map((d, i) => ({ d, i, s: score(d) })).sort((a, b) => b.s - a.s || a.i - b.i).map((x) => x.d);
-      if (!dishes.length) return null;
-      return html`<div class="section" key=${cat.key}>
+    ${data.dishes.length > 0 && html`<div class="segmented two view-switch" role="tablist" aria-label="Ansicht">
+      <button type="button" role="tab" aria-selected=${view === "liste"} class=${view === "liste" ? "on" : ""} onClick=${() => setView("liste")}>☰ Liste</button>
+      <button type="button" role="tab" aria-selected=${view === "tabelle"} class=${view === "tabelle" ? "on" : ""} onClick=${() => setView("tabelle")}>📊 Wer stimmt wie?</button>
+    </div>`}
+    ${view === "tabelle" && data.dishes.length > 0 && html`<${VoteTable} data=${data} sortedByCategory=${sortedByCategory} />`}
+    ${view === "liste" && sortedByCategory.map(({ cat, dishes }) => html`<div class="section" key=${cat.key}>
         <h3>${cat.icon} ${cat.key}</h3>
         <div class="card list">
           ${dishes.map((d) => html`<${DishItem} key=${d.id} dish=${d} votes=${data.votes.filter((v) => v.dish_id === d.id)}
             comments=${data.comments === null ? null : data.comments.filter((c) => c.dish_id === d.id)}
             reload=${reload} onEdit=${() => edit(d)} />`)}
         </div>
-      </div>`;
-    })}`;
+      </div>`)}`;
 }
 
 function ResponsibleSelect({ value, onChange, disabled, className = "" }) {
@@ -196,10 +203,6 @@ function DishItem({ dish, votes, comments, reload, onEdit }) {
         <div class="list-title">${dish.name}</div>
         ${dish.description && html`<div class="list-sub">${dish.description}</div>`}
         ${dish.ingredients?.length > 0 && html`<div class="list-sub clamp">🧾 ${dish.ingredients.join(", ")}</div>`}
-        ${(up.length > 0 || down.length > 0) && html`<div class="vote-names">
-          ${up.length > 0 && html`<span class="vote-up">👍 ${names(up)}</span>`}
-          ${down.length > 0 && html`<span class="vote-down">👎 ${names(down)}</span>`}
-        </div>`}
         <div class="list-meta">
           <${ResponsibleSelect} className="chip-select" value=${dish.responsible} disabled=${action.busy} onChange=${setResponsible} />
           <span class="muted">von ${dish.proposed_by === me.name ? "dir" : dish.proposed_by}</span>
@@ -213,14 +216,49 @@ function DishItem({ dish, votes, comments, reload, onEdit }) {
       </div>
       <div class="votes">
         <button class=${`vote ${mine === 1 ? "on" : ""}`} disabled=${action.busy} onClick=${() => vote(1)} aria-pressed=${mine === 1}
-                aria-label=${`Daumen hoch, ${up.length}`} title=${up.length ? `Dafür: ${names(up)}` : "Dafür stimmen"}>
+                aria-label=${`Daumen hoch, ${up.length}${up.length ? `: ${names(up)}` : ""}`}>
           👍<span>${up.length}</span>
         </button>
         <button class=${`vote down ${mine === -1 ? "on" : ""}`} disabled=${action.busy} onClick=${() => vote(-1)} aria-pressed=${mine === -1}
-                aria-label=${`Daumen runter, ${down.length}`} title=${down.length ? `Dagegen: ${names(down)}` : "Dagegen stimmen"}>
+                aria-label=${`Daumen runter, ${down.length}${down.length ? `: ${names(down)}` : ""}`}>
           👎<span>${down.length}</span>
         </button>
       </div>
+    </div>`;
+}
+
+// Übersichtstabelle: wer hat wie abgestimmt (Zeilen = Gerichte, Spalten = Personen)
+function VoteTable({ data, sortedByCategory }) {
+  const { people, me } = useApp();
+  const voteOf = (dishId, person) => data.votes.find((v) => v.dish_id === dishId && v.voter === person)?.value ?? 0;
+  const score = (dishId) => data.votes.filter((v) => v.dish_id === dishId).reduce((s, v) => s + (v.value ?? 1), 0);
+  return html`
+    <div class="card vote-table-wrap">
+      <table class="vote-table">
+        <thead><tr>
+          <th class="dish-col">Gericht</th>
+          ${people.map((p) => html`<th key=${p.name} title=${p.name} class=${p.name === me.name ? "me" : ""}>
+            <span class="avatar small" style=${{ background: p.color_bg, color: p.color_fg }}>${p.name[0]}</span>
+            <span class="visually-hidden">${p.name}</span></th>`)}
+          <th title="Summe: Daumen hoch minus Daumen runter">Σ</th>
+        </tr></thead>
+        <tbody>
+          ${sortedByCategory.map(({ cat, dishes }) => html`
+            <tr class="cat-row" key=${cat.key}><td colspan=${people.length + 2}>${cat.icon} ${cat.key}</td></tr>
+            ${dishes.map((d) => {
+              const s = score(d.id);
+              return html`<tr key=${d.id}>
+                <td class="dish-col">${d.name}</td>
+                ${people.map((p) => {
+                  const v = voteOf(d.id, p.name);
+                  return html`<td key=${p.name} class=${v === 1 ? "up" : v === -1 ? "down" : "none"}
+                    aria-label=${`${p.name}: ${v === 1 ? "dafür" : v === -1 ? "dagegen" : "keine Stimme"}`}>${v === 1 ? "👍" : v === -1 ? "👎" : "·"}</td>`;
+                })}
+                <td class=${`sum ${s > 0 ? "pos" : s < 0 ? "neg" : ""}`}>${s > 0 ? `+${s}` : s}</td>
+              </tr>`;
+            })}`)}
+        </tbody>
+      </table>
     </div>`;
 }
 
