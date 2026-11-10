@@ -103,7 +103,11 @@ function ClaimControls({ item, kind, purchase, reload }) {
   } else if (purchase.claimed_by !== me.name) {
     body = html`<span class="badge gold">🔒 ${purchase.claimed_by} besorgt das</span>`;
   } else if (purchase.purchased) {
-    body = html`<span class="badge green">✅ Von dir gekauft${purchase.actual_price != null ? ` · ${euro(purchase.actual_price)}` : ""}</span>`;
+    // Versehentlich auf "Gekauft" gedrückt? Zurück zu "Du besorgst das" (die Besorgung bleibt bei dir)
+    body = html`
+      <span class="badge green">✅ Von dir gekauft${purchase.actual_price != null ? ` · ${euro(purchase.actual_price)}` : ""}</span>
+      <button class="link-btn" disabled=${action.busy}
+        onClick=${() => run(() => undoPurchased(item.id), "Zurückgesetzt – du besorgst es weiterhin")}>Rückgängig</button>`;
   } else {
     body = html`
       <span class="badge gold">🛍️ Du besorgst das</span>
