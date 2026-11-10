@@ -71,11 +71,12 @@ small, .muted { color: var(--muted); }
 .spacer { flex: 1; }
 
 /* ---------- Layout ---------- */
-.layout { display: flex; min-height: 100vh; }
+/* Seitenleiste fest am linken Rand, durchgehend von oben bis unten (auch beim Scrollen) */
+.layout { display: flex; min-height: 100vh; padding-left: var(--sidebar); }
 .sidebar {
-  width: var(--sidebar); flex-shrink: 0; background: var(--green); color: #F6F1E7;
+  width: var(--sidebar); background: var(--green); color: #F6F1E7;
   padding: calc(1.5rem + env(safe-area-inset-top)) 1rem 1.5rem calc(1rem + env(safe-area-inset-left));
-  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  position: fixed; top: 0; bottom: 0; left: 0; z-index: 10; overflow-y: auto;
   display: flex; flex-direction: column; gap: .25rem;
 }
 .sidebar .brand { font-size: 1.2rem; font-weight: 800; margin-bottom: .25rem; }
@@ -98,6 +99,7 @@ small, .muted { color: var(--muted); }
 .tabbar { display: none; }
 @media (max-width: 760px) {
   .sidebar { display: none; }
+  .layout { padding-left: 0; }
   /* Abstand zur Statusleiste / Dynamic Island (installierte App im Vollbild) */
   .main {
     padding: calc(.75rem + env(safe-area-inset-top)) calc(1rem + env(safe-area-inset-right))
