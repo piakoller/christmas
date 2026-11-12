@@ -5,12 +5,15 @@ import { uploadImages, removeImages } from "./images.js";
 export const BUCKET = "wish-images";
 
 export async function loadGifts(season) {
-  const [wishes, suggestions, purchases] = await Promise.all([
+  const [wishes, suggestions, purchases, comments] = await Promise.all([
     supabase.from("wishes").select("*").eq("season", season).order("created_at"),
     supabase.from("suggestions").select("*").eq("season", season).order("created_at"),
     supabase.from("purchases").select("*").eq("season", season).order("claimed_at"),
+    supabase.from("wish_comments").select("*").order("created_at"),
   ]);
+  if (comments.error) console.warn("Kommentare zu Wünschen konnten nicht geladen werden", comments.error);
   return {
+    comments: comments.error ? null : comments.data, // null = Tabelle fehlt noch
     wishes: check(wishes, "Wünsche konnten nicht geladen werden"),
     suggestions: check(suggestions, "Vorschläge konnten nicht geladen werden"),
     purchases: check(purchases, "Besorgungen konnten nicht geladen werden"),

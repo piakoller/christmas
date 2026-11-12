@@ -63,12 +63,14 @@ const PREFS = [
   { key: "expert", label: "👨‍🏫 Ich bin Experte für einen Wunsch" },
   { key: "meal", label: "🍽️ Mir wird ein Gericht zugeteilt" },
   { key: "suggestion", label: "🤫 Neue geheime Geschenkidee" },
+  { key: "comment", label: "💬 Frage oder Antwort zu einem Wunsch" },
 ];
 
 export function NotificationSettings() {
   const { me } = useApp();
   const [deviceOn, setDeviceOn] = useState(null); // null = lädt
-  const [prefs, setPrefs] = useState({ expert: true, meal: true, suggestion: true });
+  const [prefs, setPrefs] = useState({ expert: true, meal: true, suggestion: true, comment: true });
+  const [hasComment, setHasComment] = useState(true); // false, solange die Spalte in der Datenbank fehlt
   const device = useAction();
   const prefAction = useAction();
   const test = useAction();
@@ -76,7 +78,10 @@ export function NotificationSettings() {
   useEffect(() => {
     (async () => {
       const { data } = await supabase.from("notification_prefs").select("*").eq("person", me.name).maybeSingle();
-      if (data) setPrefs({ expert: data.expert, meal: data.meal, suggestion: data.suggestion });
+      if (data) {
+        setPrefs({ expert: data.expert, meal: data.meal, suggestion: data.suggestion, comment: data.comment ?? true });
+        setHasComment("comment" in data);
+      }
       if (!pushSupported()) { setDeviceOn(false); return; }
       const sub = await currentSubscription();
       if (!sub) { setDeviceOn(false); return; }
@@ -93,8 +98,10 @@ export function NotificationSettings() {
 
   const togglePref = async (key, value) => {
     const next = { ...prefs, [key]: value };
+    const row = { person: me.name, ...next };
+    if (!hasComment) delete row.comment;
     const ok = await prefAction.run(async () => {
-      check(await supabase.from("notification_prefs").upsert({ person: me.name, ...next }), "Einstellung konnte nicht gespeichert werden");
+      check(await supabase.from("notification_prefs").upsert(row), "Einstellung konnte nicht gespeichert werden");
     });
     if (ok) setPrefs(next);
   };
@@ -122,7 +129,7 @@ export function NotificationSettings() {
     <h3 class="settings-head">🔔 Benachrichtigungen</h3>
     <div class="card list">
       ${deviceRow}
-      ${PREFS.map((p) => html`<label class="list-item switch-row" key=${p.key}>
+      ${PREFS.filter((p) => p.key !== "comment" || hasComment).map((p) => html`<label class="list-item switch-row" key=${p.key}>
         <span>${p.label}</span>
         <input type="checkbox" class="switch" checked=${prefs[p.key]} disabled=${prefAction.busy}
                onChange=${(e) => togglePref(p.key, e.target.checked)} />

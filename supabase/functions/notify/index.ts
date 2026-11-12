@@ -1,5 +1,5 @@
 // Edge Function "notify": verschickt Push-Nachrichten.
-// Die App ruft sie nach dem Speichern auf: { kind: "expert" | "meal" | "suggestion" | "test", id }.
+// Die App ruft sie nach dem Speichern auf: { kind: "expert" | "meal" | "suggestion" | "comment" | "test", id }.
 // Die Funktion liest den Datensatz selbst (Service-Key), bestimmt die Empfänger, beachtet
 // deren Einstellungen und schickt jede Nachricht nur einmal (Tabelle notifications_sent).
 //
@@ -15,7 +15,7 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-type Pref = "expert" | "meal" | "suggestion";
+type Pref = "expert" | "meal" | "suggestion" | "comment";
 type Message = { recipients: string[]; pref: Pref | null; title: string; body: string; url: string; tag: string };
 
 function json(body: unknown, status = 200) {
@@ -123,6 +123,29 @@ async function buildMessage(admin: any, caller: string, kind: string, id: string
       title: "🤫 Neue geheime Geschenkidee",
       body: `${s.suggested_by} hat eine Idee für ${s.suggested_for}.`,
       url: "./#/wunschliste?tab=vorschlaege",
+    };
+  }
+  if (kind === "comment") {
+    // Frage/Kommentar zu einem Wunsch: an den Besitzer; antwortet der Besitzer, an alle, die dort geschrieben haben
+    const { data: c } = await admin.from("wish_comments").select("wish_id, author").eq("id", id).maybeSingle();
+    if (!c || c.author !== caller) return { error: "Nicht gefunden" };
+    const { data: wish } = await admin.from("wishes").select("owner, name").eq("id", c.wish_id).maybeSingle();
+    if (!wish) return { error: "Nicht gefunden" };
+    if (caller !== wish.owner) {
+      return {
+        recipients: [wish.owner], pref: "comment", tag: `comment-${c.wish_id}`,
+        title: "💬 Frage zu deinem Wunsch",
+        body: `${caller} hat etwas zu „${wish.name}“ geschrieben.`,
+        url: "./#/wunschliste?tab=meine",
+      };
+    }
+    const { data: others } = await admin.from("wish_comments").select("author").eq("wish_id", c.wish_id);
+    const recipients = [...new Set((others ?? []).map((o: { author: string }) => o.author))].filter((n) => n !== caller);
+    return {
+      recipients, pref: "comment", tag: `comment-${c.wish_id}`,
+      title: "💬 Antwort zu einem Wunsch",
+      body: `${caller} hat zu „${wish.name}“ geantwortet.`,
+      url: "./#/wunschliste?tab=andere",
     };
   }
   return { error: "Unbekanntes Ereignis" };

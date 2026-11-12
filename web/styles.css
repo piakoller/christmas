@@ -381,6 +381,7 @@ input.switch:disabled { opacity: .5; }
 .comment-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem; font-size: .85rem; }
 .comment-text { font-size: .95rem; white-space: pre-line; overflow-wrap: anywhere; }
 .comments .add-item input { background: #fff; padding: .45rem .6rem; font-size: .95rem; min-width: 0; }
+.comment.highlight { border-left: 3px solid var(--green); padding-left: .55rem; }
 .inline-form .btn { flex-shrink: 0; white-space: nowrap; }
 
 /* Einkaufsliste */

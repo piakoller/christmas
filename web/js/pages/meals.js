@@ -1,7 +1,7 @@
 import { html, useState, useApp, useLoader, useAction, navigate, Alert, BackLink, Loading, Empty } from "../ui.js";
 import { supabase, check } from "../supabase.js";
 import { christmasDays } from "../lib/season.js";
-import { dateTime } from "../lib/format.js";
+import { Comments } from "../lib/comments.js";
 import { notify } from "../lib/push.js";
 
 const CATEGORIES = [
@@ -211,7 +211,7 @@ function DishItem({ dish, votes, comments, reload, onEdit }) {
           ${comments !== null && html`<button class="link-btn" aria-expanded=${showComments} onClick=${() => setShowComments(!showComments)}>
             💬 ${comments.length ? `Kommentare (${comments.length})` : "Kommentieren"}</button>`}
         </div>
-        ${showComments && comments !== null && html`<${DishComments} dish=${dish} comments=${comments} reload=${reload} />`}
+        ${showComments && comments !== null && html`<${Comments} table="dish_comments" column="dish_id" itemId=${dish.id} itemName=${dish.name} comments=${comments} reload=${reload} />`}
         <${Alert} kind="error">${action.error}<//>
       </div>
       <div class="votes">
@@ -419,44 +419,5 @@ function ShoppingRow({ item, sub, busy, onToggle, onRemove }) {
         <div class="list-sub">${sub}</div>
       </div>
       <button type="button" class="chip-x" aria-label=${`${item.name} löschen`} disabled=${busy} onClick=${onRemove}>✕</button>
-    </div>`;
-}
-
-// ---------------------------------------------------------------------------
-// Kommentare zu einem Gericht
-// ---------------------------------------------------------------------------
-function DishComments({ dish, comments, reload }) {
-  const { me } = useApp();
-  const [text, setText] = useState("");
-  const action = useAction();
-
-  const add = (e) => {
-    e.preventDefault();
-    const value = text.trim();
-    if (!value) return;
-    action.run(async () => {
-      check(await supabase.from("dish_comments").insert({ dish_id: dish.id, author: me.name, text: value }), "Kommentar konnte nicht gespeichert werden");
-    }).then((ok) => { if (ok) { setText(""); reload(); } });
-  };
-
-  const remove = (c) => confirm("Kommentar löschen?") && action.run(async () => {
-    check(await supabase.from("dish_comments").delete().eq("id", c.id), "Kommentar konnte nicht gelöscht werden");
-  }).then((ok) => ok && reload());
-
-  return html`
-    <div class="comments">
-      ${comments.map((c) => html`<div class="comment" key=${c.id}>
-        <div class="comment-head"><strong>${c.author === me.name ? "Du" : c.author}</strong>
-          <span class="muted">${dateTime(c.created_at)}</span>
-          ${c.author === me.name && html`<button class="link-btn danger" disabled=${action.busy} onClick=${() => remove(c)}>Löschen</button>`}
-        </div>
-        <div class="comment-text">${c.text}</div>
-      </div>`)}
-      <form class="inline-form add-item" novalidate onSubmit=${add}>
-        <input type="text" maxlength="500" placeholder="Kommentar schreiben …" aria-label=${`Kommentar zu ${dish.name}`}
-               value=${text} onInput=${(e) => setText(e.target.value)} />
-        <button class="btn green small" disabled=${action.busy || !text.trim()}>Senden</button>
-      </form>
-      ${action.error && html`<span class="error-text">${action.error}</span>`}
     </div>`;
 }

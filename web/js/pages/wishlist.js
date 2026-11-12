@@ -3,6 +3,7 @@ import { CONFIG } from "../../config.js";
 import { euro, safeUrl } from "../lib/format.js";
 import { StoredImages } from "../lib/images.js";
 import { notify } from "../lib/push.js";
+import { Comments } from "../lib/comments.js";
 import {
   BUCKET, loadGifts, saveWish, deleteWish, saveSuggestion, deleteSuggestion,
   claim, unclaim, markPurchased, undoPurchased, setReimbursed, parsePrice,
@@ -131,6 +132,23 @@ function FormHeader({ title, onClose }) {
     <button type="button" class="btn ghost small" onClick=${onClose} aria-label="Schließen">✕</button></div>`;
 }
 
+// Fragen/Kommentare zu einem Wunsch (z. B. "Welche Farbe?"). Alle sehen sie, auch der Besitzer.
+// Beim Besitzer sind vorhandene Fragen gleich aufgeklappt, damit er sie bemerkt und antworten kann.
+function WishComments({ wish, comments, reload }) {
+  const { me } = useApp();
+  const own = wish.owner === me.name;
+  const list = comments?.filter((c) => c.wish_id === wish.id) || [];
+  const [open, setOpen] = useState(own && list.length > 0);
+  if (comments === null) return null; // Tabelle noch nicht angelegt
+  const label = list.length ? `💬 ${own ? "Fragen" : "Fragen & Kommentare"} (${list.length})` : own ? "💬 Kommentieren" : "💬 Frage stellen";
+  return html`
+    <div class="item-links"><button class="link-btn" aria-expanded=${open} onClick=${() => setOpen(!open)}>${label}</button></div>
+    ${open && html`<${Comments} table="wish_comments" column="wish_id" itemId=${wish.id} itemName=${wish.name}
+      comments=${list} reload=${reload} highlight=${wish.owner} highlightLabel=${own ? null : "wünscht es sich"}
+      placeholder=${own ? "Antworten …" : "z. B. Welche Farbe, welche Größe? …"}
+      onAdded=${(id) => notify("comment", id).catch(console.warn)} />`}`;
+}
+
 // ---------------------------------------------------------------------------
 // Meine Wünsche
 // ---------------------------------------------------------------------------
@@ -159,11 +177,11 @@ function MyWishes({ data, reload }) {
       ${mine.length === 0
         ? html`<${Empty}>Du hast noch keine Wünsche eingetragen.<//>`
         : html`<div class="card list">${mine.map((w) => html`<${MyWishItem} key=${w.id} wish=${w}
-            purchase=${data.purchases.find((p) => p.item_id === w.id)} onEdit=${() => edit(w)} reload=${reload} />`)}</div>`}
+            purchase=${data.purchases.find((p) => p.item_id === w.id)} comments=${data.comments} onEdit=${() => edit(w)} reload=${reload} />`)}</div>`}
     </div>`;
 }
 
-function MyWishItem({ wish, purchase, onEdit, reload }) {
+function MyWishItem({ wish, purchase, comments, onEdit, reload }) {
   const { me } = useApp();
   const action = useAction();
   const run = (fn, text) => action.run(fn, text).then((ok) => ok && reload());
@@ -188,6 +206,7 @@ function MyWishItem({ wish, purchase, onEdit, reload }) {
           onClick=${() => confirm(`„${wish.name}“ wirklich löschen?`) && run(() => deleteWish(wish), "Wunsch gelöscht")}>Löschen</button>
       </div>
       ${action.error && html`<span class="error-text">${action.error.includes("schon jemand") ? "Das geht gerade nicht. Frag am besten Pia." : action.error}</span>`}
+      <${WishComments} wish=${wish} comments=${comments} reload=${reload} />
     <//>`;
 }
 
@@ -281,6 +300,7 @@ function OthersWishes({ data, reload }) {
       <div class="card list">${expertTasks.map((w) => html`<${GiftItem} key=${w.id} item=${w}
           extra=${html`<span class="muted">für ${w.owner}</span>${w.buy_self ? html`<span class="badge">kauft es selbst</span>` : null}`}>
         <${ClaimControls} item=${w} kind="wish" purchase=${purchaseOf(w.id)} reload=${reload} />
+        <${WishComments} wish=${w} comments=${data.comments} reload=${reload} />
       <//>`)}</div>`}
     ${order.length === 0 && html`<${Empty}>Es gibt noch keine Wünsche von anderen.<//>`}
     ${order.map((owner) => html`
@@ -288,6 +308,7 @@ function OthersWishes({ data, reload }) {
       <div class="card list">${grouped.get(owner).map((w) => html`<${GiftItem} key=${w.id} item=${w}
           extra=${w.expert ? html`<span class="badge">👨‍🏫 ${w.expert}</span>` : null}>
         <${ClaimControls} item=${w} kind="wish" purchase=${purchaseOf(w.id)} reload=${reload} />
+        <${WishComments} wish=${w} comments=${data.comments} reload=${reload} />
       <//>`)}</div>`)}`;
 }
 
